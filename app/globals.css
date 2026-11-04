@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+/* ScaleUp admin — same Midnight Blue palette as the website (dark only). */
+:root {
+  --ink: #060a14;
+  --ink-alt: #0a0f1c;
+  --fg: #e8ecf4;
+  --surface: #0e1424;
+  --surface-2: #141b2e;
+  --line: rgba(200, 214, 255, 0.09);
+  --line-strong: rgba(200, 214, 255, 0.18);
+  --muted: #8b95ab;
+  --muted-2: #5d6780;
+  --accent: #3b6bff;
+  --accent-soft: #afc3ff;
+  --success: #6fd6a8;
+  --warning: #e7c27a;
+  --danger: #ff7a85;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-ink: var(--ink);
+  --color-ink-alt: var(--ink-alt);
+  --color-fg: var(--fg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-muted: var(--muted);
+  --color-muted-2: var(--muted-2);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@layer base {
+  * {
+    border-color: var(--line);
+  }
+  body {
+    background: var(--ink);
+    color: var(--fg);
+  }
+  ::selection {
+    background: rgba(59, 107, 255, 0.35);
+  }
+}
+
+/* Thin scrollbars for wide tables */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
