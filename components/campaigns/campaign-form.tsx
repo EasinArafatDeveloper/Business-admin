@@ -135,7 +135,7 @@ export function CampaignForm({
                     ))}
                   </select>
                 ) : (
-                  <a href="/channels#email" className="block rounded-xl border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-warning">
+                  <a href="/channels?tab=email" className="block rounded-xl border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-warning">
                     No sender yet — connect hello@yourdomain in Channels first →
                   </a>
                 )}

@@ -131,7 +131,7 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
             <span>
               Connect the address you send from first —{" "}
-              <Link href="/channels#email" className="font-medium underline">
+              <Link href="/channels?tab=email" className="font-medium underline">
                 add a sender
               </Link>{" "}
               (e.g. hello@scaleupweb.xyz through Gmail).
@@ -143,7 +143,7 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
             <span>
               WhatsApp isn&apos;t connected. You can still prepare the campaign, but{" "}
-              <Link href="/channels#whatsapp" className="font-medium underline">
+              <Link href="/channels?tab=whatsapp" className="font-medium underline">
                 link your number
               </Link>{" "}
               before you start it.

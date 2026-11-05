@@ -126,7 +126,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           <span>
             Paused automatically: <b>{c.lastError}</b>. Fix it in{" "}
-            <Link href={`/channels#${c.channel}`} className="font-medium underline">
+            <Link href={`/channels?tab=${c.channel}`} className="font-medium underline">
               Channels
             </Link>{" "}
             ({c.channel === "whatsapp" ? "reconnect WhatsApp" : c.channel === "email" ? "check the sender's password" : "e.g. recharge BulkSMSBD"}
