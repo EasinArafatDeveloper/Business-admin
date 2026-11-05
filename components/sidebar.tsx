@@ -2,31 +2,28 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  MessageCircle,
-  FileSpreadsheet,
-  FileText,
-  LayoutDashboard,
-  LogOut,
-  Megaphone,
-  Settings,
-  Users,
-  Briefcase,
-  type LucideIcon
-} from "lucide-react";
+import { FileSpreadsheet, FileText, Inbox, LayoutDashboard, LogOut, Megaphone, RadioTower, Settings, Users, Briefcase, type LucideIcon } from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 type Item = { href: string; label: string; icon: LucideIcon; soon?: boolean };
 
 const groups: { title?: string; items: Item[] }[] = [
+  { items: [{ href: "/", label: "Dashboard", icon: LayoutDashboard }] },
   {
+    title: "Leads",
     items: [
-      { href: "/", label: "Dashboard", icon: LayoutDashboard },
-      { href: "/leads", label: "Leads", icon: Users },
-      { href: "/leads/import", label: "Import", icon: FileSpreadsheet },
+      { href: "/leads", label: "All leads", icon: Users },
+      { href: "/leads/import", label: "Import", icon: FileSpreadsheet }
+    ]
+  },
+  {
+    title: "Outreach",
+    items: [
       { href: "/campaigns", label: "Campaigns", icon: Megaphone },
-      { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle }
+      { href: "/inbox", label: "Inbox", icon: Inbox },
+      { href: "/channels", label: "Channels", icon: RadioTower }
     ]
   },
   {
@@ -45,7 +42,7 @@ function isActive(pathname: string, href: string) {
   return pathname.startsWith(href);
 }
 
-function NavLink({ item, pathname, compact }: { item: Item; pathname: string; compact?: boolean }) {
+function NavLink({ item, pathname, compact, badge }: { item: Item; pathname: string; compact?: boolean; badge?: number }) {
   const Icon = item.icon;
   const active = !item.soon && isActive(pathname, item.href);
   const cls = cn(
@@ -58,6 +55,7 @@ function NavLink({ item, pathname, compact }: { item: Item; pathname: string; co
     <>
       <Icon className={cn("h-4 w-4", active && "text-accent")} />
       <span>{item.label}</span>
+      {!!badge && <span className="ml-auto rounded-full bg-accent px-1.5 text-[10px] font-semibold leading-4 text-white">{badge > 99 ? "99+" : badge}</span>}
       {item.soon && !compact && <span className="ml-auto rounded-full bg-surface-2 px-1.5 py-0.5 text-[10px]">soon</span>}
     </>
   );
@@ -72,7 +70,7 @@ function NavLink({ item, pathname, compact }: { item: Item; pathname: string; co
   );
 }
 
-export function Sidebar({ userName, workspace }: { userName: string; workspace: string }) {
+export function Sidebar({ userName, workspace, badges = {} }: { userName: string; workspace: string; badges?: Record<string, number> }) {
   const pathname = usePathname();
   return (
     <>
@@ -92,18 +90,21 @@ export function Sidebar({ userName, workspace }: { userName: string; workspace: 
             <div key={i} className="space-y-0.5">
               {g.title && <div className="px-3 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted-2">{g.title}</div>}
               {g.items.map((item) => (
-                <NavLink key={item.label} item={item} pathname={pathname} />
+                <NavLink key={item.label} item={item} pathname={pathname} badge={badges[item.href]} />
               ))}
             </div>
           ))}
         </nav>
         <div className="flex items-center justify-between border-t border-line px-2 pt-4">
           <span className="truncate text-xs text-muted">{userName}</span>
-          <form action={logout}>
-            <button className="rounded-lg p-1.5 text-muted hover:bg-surface hover:text-fg" aria-label="Sign out" title="Sign out">
-              <LogOut className="h-4 w-4" />
-            </button>
-          </form>
+          <div className="flex items-center">
+            <ThemeToggle />
+            <form action={logout}>
+              <button className="rounded-lg p-1.5 text-muted hover:bg-surface hover:text-fg" aria-label="Sign out" title="Sign out">
+                <LogOut className="h-4 w-4" />
+              </button>
+            </form>
+          </div>
         </div>
       </aside>
 
@@ -114,9 +115,10 @@ export function Sidebar({ userName, workspace }: { userName: string; workspace: 
             .flatMap((g) => g.items)
             .filter((i) => !i.soon)
             .map((item) => (
-              <NavLink key={item.label} item={item} pathname={pathname} compact />
+              <NavLink key={item.label} item={item} pathname={pathname} compact badge={badges[item.href]} />
             ))}
-          <form action={logout} className="ml-auto shrink-0">
+          <ThemeToggle className="ml-auto shrink-0 p-2" />
+          <form action={logout} className="shrink-0">
             <button className="rounded-lg p-2 text-muted" aria-label="Sign out">
               <LogOut className="h-4 w-4" />
             </button>

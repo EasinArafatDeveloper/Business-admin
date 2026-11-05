@@ -29,6 +29,13 @@
       "when": 1793871610760,
       "tag": "0003_quick_electro",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793873896701,
+      "tag": "0004_inbox_threads",
+      "breakpoints": true
     }
   ]
 }

@@ -42,7 +42,7 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
     lead.phone && { href: `tel:${lead.phone}`, label: "Call", sub: lead.phone, icon: Phone, tone: "text-accent-soft" },
     lead.email && { href: `mailto:${lead.email.split(",")[0].trim()}`, label: "Email", sub: lead.email, icon: Mail, tone: "text-warning" },
     lead.pageLink && { href: lead.pageLink, label: "Facebook page", sub: "Open page", icon: PanelsTopLeft, tone: "text-accent-soft" },
-    lead.adsLibraryLink && { href: lead.adsLibraryLink, label: "Ads Library", sub: `${lead.activeAds ?? 0} active ads`, icon: Megaphone, tone: "text-[#c4b5fd]" },
+    lead.adsLibraryLink && { href: lead.adsLibraryLink, label: "Ads Library", sub: `${lead.activeAds ?? 0} active ads`, icon: Megaphone, tone: "text-violet" },
     lead.website && { href: lead.website, label: "Website", sub: lead.websitePlatform ?? lead.websiteType ?? "", icon: Globe, tone: "text-muted" }
   ].filter(Boolean) as { href: string; label: string; sub: string | null; icon: typeof Phone; tone: string }[];
 

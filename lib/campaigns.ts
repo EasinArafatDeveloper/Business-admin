@@ -182,7 +182,7 @@ async function tickSms(camp: { id: number; ratePerMinute: number }) {
 }
 
 /** Dhaka hour 0–23 and start of today's Dhaka day (UTC+6, no DST). */
-function dhakaNow() {
+export function dhakaNow() {
   const now = new Date();
   const local = new Date(now.getTime() + 6 * 3600_000);
   const hour = local.getUTCHours();

@@ -46,8 +46,8 @@ export function Label({ children, hint }: { children: React.ReactNode; hint?: st
 export const STATUS_STYLES: Record<LeadStatus, { label: string; className: string }> = {
   new: { label: "New", className: "bg-accent/15 text-accent-soft" },
   contacted: { label: "Contacted", className: "bg-warning/15 text-warning" },
-  interested: { label: "Interested", className: "bg-[#a78bfa]/15 text-[#c4b5fd]" },
-  proposal: { label: "Proposal", className: "bg-[#38bdf8]/15 text-[#7dd3fc]" },
+  interested: { label: "Interested", className: "bg-[#a78bfa]/15 text-violet" },
+  proposal: { label: "Proposal", className: "bg-[#38bdf8]/15 text-sky" },
   won: { label: "Won", className: "bg-success/15 text-success" },
   lost: { label: "Lost", className: "bg-danger/15 text-danger" },
   skip: { label: "Skip", className: "bg-surface-2 text-muted-2" }
@@ -59,7 +59,7 @@ export function StatusBadge({ status }: { status: LeadStatus }) {
 }
 
 const PRIORITY_STYLES: Record<string, string> = {
-  "A - Hot": "text-[#ff9b6b]",
+  "A - Hot": "text-orange",
   "B - Warm": "text-warning",
   "C - Cold": "text-accent-soft",
   Skip: "text-muted-2"

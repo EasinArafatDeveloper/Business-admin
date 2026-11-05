@@ -5,6 +5,7 @@ import { createCampaign } from "@/app/actions/campaigns";
 import { type AudienceGroup, estimateParts, renderTemplate, sampleLink, smsParts } from "@/lib/sms-text";
 import { Button, Card, Label, inputClass } from "@/components/ui";
 import { cn, nf } from "@/lib/utils";
+import { StepHead } from "@/components/campaigns/step-head";
 
 const DEFAULT_MESSAGE: Record<Channel, string> = {
   sms: "Assalamu Alaikum {name}! Apnar business er jonno ekta fast website + auto order system banale order 24/7 ashbe. Free audit nite: {link} - ScaleUp Web",
@@ -28,7 +29,8 @@ export function CampaignForm({
   sample,
   linkBase,
   rate,
-  balance
+  balance,
+  waConnected = true
 }: {
   channel: Channel;
   audienceQuery: string;
@@ -38,6 +40,7 @@ export function CampaignForm({
   linkBase: string;
   rate: number;
   balance: number | null;
+  waConnected?: boolean;
 }) {
   const wa = channel === "whatsapp";
   const [state, action, pending] = useActionState(createCampaign, undefined);
@@ -81,153 +84,187 @@ export function CampaignForm({
         </>
       )}
 
-      <Card className="space-y-4 p-5 lg:col-span-3">
-        <label className="block">
-          <Label>Campaign name</Label>
-          <input name="name" required placeholder={wa ? "e.g. Fashion Hot — WhatsApp intro" : "e.g. Fashion Hot leads — e-commerce offer"} className={inputClass} />
-        </label>
-
-        <div>
-          <Label
-            hint={
-              wa
-                ? `${[...preview].length} chars · WhatsApp is free per message`
-                : `preview: ${chars} chars · ${parts} part${parts > 1 ? "s" : ""}${unicode ? " · Bangla/emoji → 70 per part" : " · English → 160 per part"}`
-            }
-          >
-            Message
-          </Label>
-          <textarea
-            ref={ta}
-            name="message"
-            required
-            rows={wa ? 10 : 6}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            className="w-full rounded-xl border border-line-strong bg-ink-alt p-3 text-sm outline-none focus:border-accent"
-          />
-          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="text-muted-2">Insert:</span>
-            {[
-              ["{name}", "business name"],
-              ["{service}", "best-fit service"],
-              ["{link}", "tracking link (required)"],
-              ["{Hi|Hello|Assalamu Alaikum}", "random variation per person"]
-            ].map(([t, hint]) => (
-              <button type="button" key={t} onClick={() => insert(t)} title={hint} className="rounded-full border border-line-strong px-2.5 py-1 font-mono text-muted hover:text-fg">
-                {t}
-              </button>
-            ))}
-          </div>
-          <p className="mt-1.5 text-xs text-muted-2">
-            {"{a|b|c}"} picks one option at random for each person{wa ? " — strongly recommended on WhatsApp so messages aren't identical" : ""}.
-          </p>
-        </div>
-
-        {!wa && (
-          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-ink-alt p-3">
-            <input type="checkbox" name="cleanNames" checked={cleanNames} onChange={(e) => setCleanNames(e.target.checked)} className="mt-0.5 accent-[#3b6bff]" />
-            <span className="text-sm">
-              Remove Bangla & emoji from names
-              <span className="mt-0.5 block text-xs text-muted">
-                “Smart Shop 🛍️” → “Smart Shop”, a fully Bangla name → “Sir/Madam”. Keeps every SMS in cheap English parts.
-              </span>
-            </span>
-          </label>
-        )}
-
-        <label className="block">
-          <Label hint="where the tracking link sends people">Link destination</Label>
-          <input name="destinationUrl" required defaultValue="https://scaleupweb.xyz/free-audit" className={inputClass} />
-        </label>
-
-        {wa ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <label className="block">
-              <Label>Gap between messages</Label>
-              <select value={gap} onChange={(e) => setGap(e.target.value as typeof gap)} className={inputClass}>
-                {GAPS.map(([v, l]) => (
-                  <option key={v} value={v}>
-                    {l}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <Label hint="all WhatsApp campaigns together">Max per day</Label>
-              <select name="dailyLimit" value={daily} onChange={(e) => setDaily(Number(e.target.value))} className={inputClass}>
-                {[20, 30, 50, 100, 150, 250].map((n) => (
-                  <option key={n} value={n}>
-                    {n} messages / day{n <= 30 ? " (new number)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        ) : (
+      <div className="space-y-3 lg:col-span-3">
+        <StepHead n={3} title="Message" />
+        <Card className="space-y-4 p-5">
           <label className="block">
-            <Label hint={`≈ ${nf.format(minutes)} min for everyone`}>Sending speed</Label>
-            <select name="ratePerMinute" value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className={inputClass}>
-              {[10, 30, 60, 120].map((n) => (
-                <option key={n} value={n}>
-                  {n} SMS per minute
-                </option>
-              ))}
-            </select>
+            <Label>Campaign name</Label>
+            <input
+              name="name"
+              required
+              placeholder={wa ? "e.g. Fashion Hot — WhatsApp intro" : "e.g. Fashion Hot leads — e-commerce offer"}
+              className={inputClass}
+            />
           </label>
-        )}
-      </Card>
 
-      <div className="space-y-5 lg:col-span-2">
-        <Card className="p-5">
-          <div className="text-xs text-muted">Preview — {sample.name} (one random variation)</div>
-          <div
-            className={cn(
-              "mt-3 whitespace-pre-wrap break-words rounded-2xl rounded-tl-sm p-3.5 text-sm leading-relaxed",
-              wa ? "bg-[#005c4b] text-white" : "bg-surface-2"
-            )}
-          >
-            {preview}
+          <div>
+            <Label
+              hint={
+                wa
+                  ? `${[...preview].length} chars · WhatsApp is free per message`
+                  : `preview: ${chars} chars · ${parts} part${parts > 1 ? "s" : ""}${unicode ? " · Bangla/emoji → 70 per part" : " · English → 160 per part"}`
+              }
+            >
+              Message
+            </Label>
+            <textarea
+              ref={ta}
+              name="message"
+              required
+              rows={wa ? 10 : 6}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              className="w-full rounded-xl border border-line-strong bg-ink-alt p-3 text-sm outline-none focus:border-accent"
+            />
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-muted-2">Insert:</span>
+              {[
+                ["{name}", "business name"],
+                ["{service}", "best-fit service"],
+                ["{link}", "tracking link (required)"],
+                ["{Hi|Hello|Assalamu Alaikum}", "random variation per person"]
+              ].map(([t, hint]) => (
+                <button
+                  type="button"
+                  key={t}
+                  onClick={() => insert(t)}
+                  title={hint}
+                  className="rounded-full border border-line-strong px-2.5 py-1 font-mono text-muted hover:text-fg"
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-muted-2">
+              {"{a|b|c}"} picks one option at random for each person
+              {wa ? " — strongly recommended on WhatsApp so messages aren't identical" : ""}.
+            </p>
           </div>
+
+          {!wa && (
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-ink-alt p-3">
+              <input
+                type="checkbox"
+                name="cleanNames"
+                checked={cleanNames}
+                onChange={(e) => setCleanNames(e.target.checked)}
+                className="mt-0.5 accent-[#3b6bff]"
+              />
+              <span className="text-sm">
+                Remove Bangla & emoji from names
+                <span className="mt-0.5 block text-xs text-muted">
+                  “Smart Shop 🛍️” → “Smart Shop”, a fully Bangla name → “Sir/Madam”. Keeps every SMS in cheap English parts.
+                </span>
+              </span>
+            </label>
+          )}
+
+          <label className="block">
+            <Label hint="where the tracking link sends people">Link destination</Label>
+            <input name="destinationUrl" required defaultValue="https://scaleupweb.xyz/free-audit" className={inputClass} />
+          </label>
         </Card>
 
-        {wa ? (
-          <Card className="space-y-2 p-5 text-sm">
-            <Row k="Recipients" v={nf.format(audienceSize)} />
-            <Row k="Cost" v="Free (WhatsApp)" />
-            <Row k="Per day" v={`${daily} messages, 9am–9pm`} />
-            <div className="border-t border-line pt-2">
-              <Row k="Takes about" v={`${nf.format(days)} day${days > 1 ? "s" : ""}`} strong />
-            </div>
-            <p className="text-xs text-muted-2">Numbers that aren&apos;t on WhatsApp are skipped automatically.</p>
-          </Card>
-        ) : (
-          <Card className="space-y-2 p-5 text-sm">
-            <Row k="Recipients" v={nf.format(audienceSize)} />
-            {est.byParts.map(([p, people]) => (
-              <Row key={p} k={`${p} part${p > 1 ? "s" : ""} (৳${(p * rate).toFixed(2)} each)`} v={`${nf.format(people)} people`} />
-            ))}
-            <Row k="Total SMS parts" v={nf.format(est.totalParts)} />
-            <Row k="Rate" v={`৳${rate} / part`} />
-            <div className="border-t border-line pt-2">
-              <Row k="Estimated cost" v={`৳${nf.format(Math.round(cost * 100) / 100)}`} strong />
-            </div>
-            <Row k="Your balance" v={balance == null ? "unavailable" : `৳${balance.toFixed(2)}`} warn={notEnough} />
-            {est.unicodePeople > 0 && (
-              <p className="text-xs text-warning">
-                {nf.format(est.unicodePeople)} message{est.unicodePeople > 1 ? "s" : ""} use Bangla/emoji (70 chars per part)
-                {cleanNames ? " — from the message text itself" : " — tick “Remove Bangla & emoji from names” to make them cheaper"}.
-              </p>
-            )}
-            {notEnough && <p className="text-xs text-warning">Balance is lower than the cost. Sending will pause automatically when it runs out — recharge BulkSMSBD first.</p>}
-          </Card>
-        )}
+        <Card className="space-y-4 p-5">
+          <div className="text-sm font-medium">Delivery</div>
 
-        {state?.error && <p className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{state.error}</p>}
-        <Button type="submit" disabled={pending || audienceSize === 0} className="w-full">
-          {pending ? "Preparing links…" : `Create ${wa ? "WhatsApp" : "SMS"} campaign (${nf.format(audienceSize)} people)`}
-        </Button>
-        <p className="text-center text-xs text-muted-2">Nothing is sent yet — you can send yourself a test and start it on the next page.</p>
+          {wa ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="block">
+                <Label>Gap between messages</Label>
+                <select value={gap} onChange={(e) => setGap(e.target.value as typeof gap)} className={inputClass}>
+                  {GAPS.map(([v, l]) => (
+                    <option key={v} value={v}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <Label hint="all WhatsApp campaigns together">Max per day</Label>
+                <select name="dailyLimit" value={daily} onChange={(e) => setDaily(Number(e.target.value))} className={inputClass}>
+                  {[20, 30, 50, 100, 150, 250].map((n) => (
+                    <option key={n} value={n}>
+                      {n} messages / day{n <= 30 ? " (new number)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ) : (
+            <label className="block">
+              <Label hint={`≈ ${nf.format(minutes)} min for everyone`}>Sending speed</Label>
+              <select name="ratePerMinute" value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className={inputClass}>
+                {[10, 30, 60, 120].map((n) => (
+                  <option key={n} value={n}>
+                    {n} SMS per minute
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </Card>
+      </div>
+
+      <div className="space-y-3 lg:col-span-2">
+        <StepHead n={4} title="Review" />
+        <div className="space-y-4 lg:sticky lg:top-6">
+          <Card className="p-5">
+            <div className="text-xs text-muted">Preview — {sample.name} (one random variation)</div>
+            <div
+              className={cn(
+                "mt-3 whitespace-pre-wrap break-words rounded-2xl rounded-tl-sm p-3.5 text-sm leading-relaxed",
+                wa ? "bg-[#005c4b] text-white" : "bg-surface-2"
+              )}
+            >
+              {preview}
+            </div>
+          </Card>
+
+          {wa ? (
+            <Card className="space-y-2 p-5 text-sm">
+              <Row k="Recipients" v={nf.format(audienceSize)} />
+              <Row k="Cost" v="Free (WhatsApp)" />
+              <Row k="Per day" v={`${daily} messages, 9am–9pm`} />
+              <div className="border-t border-line pt-2">
+                <Row k="Takes about" v={`${nf.format(days)} day${days > 1 ? "s" : ""}`} strong />
+              </div>
+              <p className="text-xs text-muted-2">Numbers that aren&apos;t on WhatsApp are skipped automatically.</p>
+              {!waConnected && <p className="text-xs text-warning">WhatsApp isn&apos;t connected — link it in Channels before pressing Start.</p>}
+            </Card>
+          ) : (
+            <Card className="space-y-2 p-5 text-sm">
+              <Row k="Recipients" v={nf.format(audienceSize)} />
+              {est.byParts.map(([p, people]) => (
+                <Row key={p} k={`${p} part${p > 1 ? "s" : ""} (৳${(p * rate).toFixed(2)} each)`} v={`${nf.format(people)} people`} />
+              ))}
+              <Row k="Total SMS parts" v={nf.format(est.totalParts)} />
+              <Row k="Rate" v={`৳${rate} / part`} />
+              <div className="border-t border-line pt-2">
+                <Row k="Estimated cost" v={`৳${nf.format(Math.round(cost * 100) / 100)}`} strong />
+              </div>
+              <Row k="Your balance" v={balance == null ? "unavailable" : `৳${balance.toFixed(2)}`} warn={notEnough} />
+              {est.unicodePeople > 0 && (
+                <p className="text-xs text-warning">
+                  {nf.format(est.unicodePeople)} message
+                  {est.unicodePeople > 1 ? "s" : ""} use Bangla/emoji (70 chars per part)
+                  {cleanNames ? " — from the message text itself" : " — tick “Remove Bangla & emoji from names” to make them cheaper"}.
+                </p>
+              )}
+              {notEnough && (
+                <p className="text-xs text-warning">
+                  Balance is lower than the cost. Sending will pause automatically when it runs out — recharge BulkSMSBD first.
+                </p>
+              )}
+            </Card>
+          )}
+
+          {state?.error && <p className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{state.error}</p>}
+          <Button type="submit" disabled={pending || audienceSize === 0} className="w-full">
+            {pending ? "Preparing links…" : `Create ${wa ? "WhatsApp" : "SMS"} campaign (${nf.format(audienceSize)} people)`}
+          </Button>
+          <p className="text-center text-xs text-muted-2">Nothing is sent yet — you can send yourself a test and start it on the next page.</p>
+        </div>
       </div>
     </form>
   );

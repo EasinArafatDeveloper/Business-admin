@@ -9,6 +9,7 @@ import { cn, nf, timeAgo } from "@/lib/utils";
 import { Card } from "@/components/ui";
 import { CampaignStatus } from "@/components/campaigns/campaign-status";
 import { CampaignControls, TestSmsForm } from "@/components/campaigns/campaign-controls";
+import { ChannelIcon } from "@/components/campaigns/channel";
 
 export async function generateMetadata({ params }: PageProps<"/campaigns/[id]">) {
   return { title: `Campaign #${(await params).id}` };
@@ -28,11 +29,19 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
 
   const C = schema.campaigns;
   const R = schema.campaignRecipients;
-  const [c] = await db.select().from(C).where(and(eq(C.id, id), eq(C.workspaceId, user.workspaceId))).limit(1);
+  const [c] = await db
+    .select()
+    .from(C)
+    .where(and(eq(C.id, id), eq(C.workspaceId, user.workspaceId)))
+    .limit(1);
   if (!c) notFound();
 
   const where =
-    tab === "clicked" ? and(eq(R.campaignId, id), gt(R.clickCount, 0)) : tab === "failed" ? and(eq(R.campaignId, id), eq(R.status, "failed")) : eq(R.campaignId, id);
+    tab === "clicked"
+      ? and(eq(R.campaignId, id), gt(R.clickCount, 0))
+      : tab === "failed"
+        ? and(eq(R.campaignId, id), eq(R.status, "failed"))
+        : eq(R.campaignId, id);
   const [recipients, [sample], [totals]] = await Promise.all([
     db
       .select({
@@ -54,7 +63,10 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
       .limit(200),
     db.select({ message: R.message }).from(R).where(eq(R.campaignId, id)).limit(1),
     db
-      .select({ parts: sql<number>`coalesce(sum(${R.parts}), 0)::int`, multi: sql<number>`count(*) filter (where ${R.parts} > 1)::int` })
+      .select({
+        parts: sql<number>`coalesce(sum(${R.parts}), 0)::int`,
+        multi: sql<number>`count(*) filter (where ${R.parts} > 1)::int`
+      })
       .from(R)
       .where(eq(R.campaignId, id))
   ]);
@@ -79,24 +91,27 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
       </Link>
 
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold tracking-tight">{c.name}</h1>
-            <CampaignStatus status={c.status} />
+        <div className="flex items-start gap-3">
+          <ChannelIcon channel={c.channel} size="lg" />
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-tight">{c.name}</h1>
+              <CampaignStatus status={c.status} />
+            </div>
+            <p className="mt-1 text-sm text-muted">
+              {c.channel === "whatsapp" ? (
+                <>
+                  WhatsApp · {c.minDelaySec}–{c.maxDelaySec}s gap · max {c.dailyLimit}/day · 9am–9pm
+                  {c.status === "sending" && c.nextSendAt ? ` · next message at ${c.nextSendAt.toLocaleTimeString("en-GB", { timeZone: "Asia/Dhaka" })}` : ""}
+                </>
+              ) : (
+                <>
+                  SMS · {c.ratePerMinute}/min · {nf.format(totals.parts)} parts ({nf.format(totals.multi)} people need 2+) · cost {cost}
+                </>
+              )}{" "}
+              · created {timeAgo(c.createdAt)}
+            </p>
           </div>
-          <p className="mt-1 text-sm text-muted">
-            {c.channel === "whatsapp" ? (
-              <>
-                WhatsApp · {c.minDelaySec}–{c.maxDelaySec}s gap · max {c.dailyLimit}/day · 9am–9pm
-                {c.status === "sending" && c.nextSendAt ? ` · next message at ${c.nextSendAt.toLocaleTimeString("en-GB", { timeZone: "Asia/Dhaka" })}` : ""}
-              </>
-            ) : (
-              <>
-                SMS · {c.ratePerMinute}/min · {nf.format(totals.parts)} parts ({nf.format(totals.multi)} people need 2+) · cost {cost}
-              </>
-            )}{" "}
-            · created {timeAgo(c.createdAt)}
-          </p>
         </div>
         <CampaignControls id={c.id} status={c.status} total={c.totalRecipients} cost={c.channel === "whatsapp" ? "" : cost} />
       </div>
@@ -105,14 +120,22 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
         <div className="flex items-start gap-2 rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           <span>
-            Paused automatically: <b>{c.lastError}</b>. Fix it ({c.channel === "whatsapp" ? "reconnect WhatsApp on the WhatsApp page" : "e.g. recharge BulkSMSBD"}), then press Resume.
+            Paused automatically: <b>{c.lastError}</b>. Fix it in{" "}
+            <Link href={`/channels#${c.channel === "whatsapp" ? "whatsapp" : "sms"}`} className="font-medium underline">
+              Channels
+            </Link>{" "}
+            ({c.channel === "whatsapp" ? "reconnect WhatsApp" : "e.g. recharge BulkSMSBD"}
+            ), then press Resume.
           </span>
         </div>
       )}
 
       <div>
         <div className="h-2 overflow-hidden rounded-full bg-surface-2">
-          <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${progress}%` }} />
+          <div
+            className={cn("h-full rounded-full transition-all", c.channel === "whatsapp" ? "bg-[#25d366]" : "bg-accent")}
+            style={{ width: `${progress}%` }}
+          />
         </div>
         <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {stats.map(([k, v]) => (
@@ -153,7 +176,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
               <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-muted-2">
                 <th className="px-4 py-2.5 font-medium">Business</th>
                 <th className="px-3 py-2.5 font-medium">Phone</th>
-                <th className="px-3 py-2.5 font-medium">SMS</th>
+                <th className="px-3 py-2.5 font-medium">Status</th>
                 <th className="px-3 py-2.5 font-medium">Real clicks</th>
                 <th className="px-3 py-2.5 font-medium">First click</th>
                 <th className="px-3 py-2.5 font-medium">Bot hits</th>
@@ -176,11 +199,17 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
                     <span
                       className={cn(
                         "text-xs",
-                        r.status === "sent" ? "text-success" : r.status === "failed" ? "text-danger" : "text-muted"
+                        r.status === "sent" ? "text-success" : r.status === "failed" && r.error !== "Not on WhatsApp" ? "text-danger" : "text-muted"
                       )}
                       title={r.error ?? undefined}
                     >
-                      {r.status === "sent" && r.sentAt ? `sent ${timeAgo(r.sentAt)}` : r.status === "failed" ? `failed · ${r.error ?? ""}` : r.status}
+                      {r.status === "sent" && r.sentAt
+                        ? `sent ${timeAgo(r.sentAt)}`
+                        : r.status === "failed"
+                          ? r.error === "Not on WhatsApp"
+                            ? "skipped · not on WhatsApp"
+                            : `failed · ${r.error ?? ""}`
+                          : r.status}
                     </span>
                   </td>
                   <td className={cn("px-3 py-2.5", r.clickCount > 0 && "font-semibold text-success")}>{r.clickCount}</td>

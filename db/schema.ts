@@ -262,7 +262,11 @@ export const inboundMessages = pgTable(
     body: text("body").notNull(),
     leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
     optOut: boolean("opt_out").notNull().default(false),
+    /** in = they wrote to us · out = our reply from the Inbox */
+    direction: text("direction").notNull().default("in"),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    readAt: timestamp("read_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
-  (t) => [index("inbound_messages_ws_idx").on(t.workspaceId, t.createdAt)]
+  (t) => [index("inbound_messages_ws_idx").on(t.workspaceId, t.createdAt), index("inbound_messages_sender_idx").on(t.workspaceId, t.sender)]
 );
