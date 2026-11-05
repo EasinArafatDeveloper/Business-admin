@@ -532,6 +532,9 @@ export const apiKeys = pgTable(
     keyHash: text("key_hash").notNull().unique(),
     /** read | write */
     scope: text("scope").notNull().default("read"),
+    /** key = pasted API key · oauth = an app connected by signing in (claude.ai, ChatGPT…) */
+    kind: text("kind").notNull().default("key"),
+    oauthClientId: text("oauth_client_id"),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
@@ -559,3 +562,49 @@ export const aiActions = pgTable(
 );
 
 export type ApiKey = typeof apiKeys.$inferSelect;
+
+/** Apps that registered themselves to use "Sign in with ScaleUp" (OAuth dynamic client registration). */
+export const oauthClients = pgTable("oauth_clients", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  redirectUris: jsonb("redirect_uris").$type<string[]>().notNull(),
+  /** Only for confidential clients; public clients (most AI apps) use PKCE without a secret. */
+  secretHash: text("secret_hash"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+
+/** One-time codes handed back after you approve an app (valid 5 minutes, PKCE-bound). */
+export const oauthCodes = pgTable("oauth_codes", {
+  id: serial("id").primaryKey(),
+  codeHash: text("code_hash").notNull().unique(),
+  clientId: text("client_id")
+    .notNull()
+    .references(() => oauthClients.id, { onDelete: "cascade" }),
+  grantId: integer("grant_id")
+    .notNull()
+    .references(() => apiKeys.id, { onDelete: "cascade" }),
+  redirectUri: text("redirect_uri").notNull(),
+  codeChallenge: text("code_challenge").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true })
+});
+
+/** Access (1 hour) and refresh (30 days, rotated) tokens for a connected app. Revoking the grant kills them all. */
+export const oauthTokens = pgTable(
+  "oauth_tokens",
+  {
+    id: serial("id").primaryKey(),
+    tokenHash: text("token_hash").notNull().unique(),
+    /** access | refresh */
+    kind: text("kind").notNull(),
+    grantId: integer("grant_id")
+      .notNull()
+      .references(() => apiKeys.id, { onDelete: "cascade" }),
+    clientId: text("client_id").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("oauth_tokens_grant_idx").on(t.grantId)]
+);
+export type OAuthClient = typeof oauthClients.$inferSelect;

@@ -155,3 +155,49 @@ export function RevokeKey({ id, name }: { id: number; name: string }) {
     </Button>
   );
 }
+
+/** claude.ai and ChatGPT: paste one link, then sign in — no key needed. */
+export function ConnectApps({ endpoint }: { endpoint: string }) {
+  const [tab, setTab] = useState<"claude" | "chatgpt">("claude");
+  return (
+    <div className="space-y-3 rounded-2xl border border-accent/30 bg-accent/5 p-5">
+      <div className="text-sm font-semibold">Connect claude.ai or ChatGPT — just sign in</div>
+      <CopyBlock text={endpoint} />
+      <div className="inline-flex rounded-xl border border-line bg-surface p-1 text-sm">
+        {(
+          [
+            ["claude", "claude.ai"],
+            ["chatgpt", "ChatGPT"]
+          ] as const
+        ).map(([k, l]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setTab(k)}
+            className={cn("rounded-lg px-3 py-1.5", tab === k ? "bg-accent/15 text-fg" : "text-muted hover:text-fg")}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+      {tab === "claude" ? (
+        <ol className="list-decimal space-y-1 pl-5 text-sm text-muted">
+          <li>
+            claude.ai → <b className="text-fg">Settings → Connectors → Add custom connector</b>
+          </li>
+          <li>Name it “ScaleUp Admin” and paste the link above → Add</li>
+          <li>Press Connect — this admin opens, sign in and choose Read only or Read + drafts → Allow</li>
+          <li>Works on Claude web, desktop and phone apps</li>
+        </ol>
+      ) : (
+        <ol className="list-decimal space-y-1 pl-5 text-sm text-muted">
+          <li>
+            ChatGPT → <b className="text-fg">Settings → Apps &amp; Connectors → Advanced settings</b> → turn on Developer mode
+          </li>
+          <li>Back in Apps &amp; Connectors → Create → paste the link above, Authentication: OAuth</li>
+          <li>Connect → sign in here → Allow</li>
+        </ol>
+      )}
+    </div>
+  );
+}

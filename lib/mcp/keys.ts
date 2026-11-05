@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { ApiKey, User } from "@/db/schema";
+import { findToken } from "@/lib/oauth";
 
 const K = schema.apiKeys;
 export const KEY_PREFIX = "su_";
@@ -16,17 +17,24 @@ export function newKey() {
 
 export type McpContext = { user: User; key: ApiKey };
 
-/** The person behind "Authorization: Bearer su_…", if the key and the account are both active. */
+/**
+ * The person behind "Authorization: Bearer …", if the key/grant and the account are both active.
+ * su_…  = an API key pasted into Claude Desktop / Cursor
+ * sua_… = an access token from "Sign in with ScaleUp" (claude.ai, ChatGPT)
+ */
 export async function authenticate(req: Request): Promise<McpContext | null> {
   const header = req.headers.get("authorization") ?? "";
-  const key = header.match(/^Bearer\s+(su_[A-Za-z0-9_-]{20,80})$/)?.[1];
-  if (!key) return null;
-  const [row] = await db
-    .select({ key: K, user: schema.users })
-    .from(K)
-    .innerJoin(schema.users, eq(schema.users.id, K.userId))
-    .where(and(eq(K.keyHash, hashKey(key)), isNull(K.revokedAt)))
-    .limit(1);
+  const bearer = header.match(/^Bearer\s+(su[a-z]?_[A-Za-z0-9_-]{20,80})$/)?.[1];
+  if (!bearer) return null;
+  let where;
+  if (bearer.startsWith("sua_")) {
+    const t = await findToken(bearer, "access");
+    if (!t) return null;
+    where = and(eq(K.id, t.grantId), isNull(K.revokedAt));
+  } else if (bearer.startsWith(KEY_PREFIX)) {
+    where = and(eq(K.keyHash, hashKey(bearer)), isNull(K.revokedAt), eq(K.kind, "key"));
+  } else return null;
+  const [row] = await db.select({ key: K, user: schema.users }).from(K).innerJoin(schema.users, eq(schema.users.id, K.userId)).where(where).limit(1);
   if (!row || row.user.status !== "active" || row.user.workspaceId !== row.key.workspaceId) return null;
   // Note "last used" at most once a minute.
   if (!row.key.lastUsedAt || Date.now() - row.key.lastUsedAt.getTime() > 60_000) {

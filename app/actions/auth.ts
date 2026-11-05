@@ -37,7 +37,13 @@ export async function login(_: FormState, formData: FormData): Promise<FormState
   clearFailures(ip);
   await db.update(schema.users).set({ lastLoginAt: new Date() }).where(eq(schema.users.id, user.id));
   await createSession({ uid: user.id, wid: user.workspaceId, v: user.sessionVersion });
-  redirect("/");
+  redirect(safeNext(formData.get("next")));
+}
+
+/** Only same-site paths like "/oauth/authorize?…" — never another website. */
+function safeNext(v: FormDataEntryValue | null) {
+  const s = typeof v === "string" ? v : "";
+  return s.startsWith("/") && !s.startsWith("//") && !s.startsWith("/\\") ? s : "/";
 }
 
 const setupSchema = z.object({

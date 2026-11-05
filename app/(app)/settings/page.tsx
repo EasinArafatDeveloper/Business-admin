@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Bot, Building2, KeyRound, MonitorSmartphone, UserRound, Users, type LucideIcon } from "lucide-react";
-import { CreateKey, RevokeKey } from "@/components/ai/ai-access";
+import { ConnectApps, CreateKey, RevokeKey } from "@/components/ai/ai-access";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { PERMISSIONS, ROLES, can } from "@/lib/permissions";
@@ -217,10 +217,12 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
                 or “make an invoice for Sign of Modesty”. A key can only do what <b className="text-fg">you</b> can do. AI never sends campaigns or messages —
                 it makes drafts you review and send. Everything it does is logged below.
               </Card>
+              <ConnectApps endpoint={endpoint} />
+              <div className="text-sm font-medium">Or use an API key (Claude Desktop, Claude Code, Cursor)</div>
               <CreateKey endpoint={endpoint} />
 
               <Card className="divide-y divide-line">
-                <div className="px-5 py-3 text-sm font-medium">Active keys ({keys.length})</div>
+                <div className="px-5 py-3 text-sm font-medium">Connected apps &amp; keys ({keys.length})</div>
                 {keys.length === 0 && <p className="px-5 py-6 text-sm text-muted-2">No keys yet.</p>}
                 {keys.map(({ k, owner }) => (
                   <div key={k.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
@@ -234,7 +236,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
                         </span>
                       </div>
                       <div className="text-xs text-muted-2">
-                        <code>{k.prefix}…</code>
+                        {k.kind === "oauth" ? <span className="text-accent-soft">connected by sign-in</span> : <code>{k.prefix}…</code>}
                         {isAdmin && ` · ${owner}`} · created {timeAgo(k.createdAt)} · {k.lastUsedAt ? `used ${timeAgo(k.lastUsedAt)}` : "never used"}
                       </div>
                     </div>

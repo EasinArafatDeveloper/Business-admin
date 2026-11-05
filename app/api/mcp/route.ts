@@ -2,6 +2,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { authenticate } from "@/lib/mcp/keys";
 import { buildServer } from "@/lib/mcp/server";
 import { allow } from "@/lib/public-invoice";
+import { CORS, resourceMetadataUrl } from "@/lib/oauth";
 
 /**
  * MCP endpoint for AI assistants: POST JSON-RPC with "Authorization: Bearer su_…".
@@ -10,7 +11,8 @@ import { allow } from "@/lib/public-invoice";
 const unauthorized = () =>
   Response.json(
     { jsonrpc: "2.0", error: { code: -32001, message: "Missing or invalid API key — create one in Settings → AI access" }, id: null },
-    { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="scaleup-admin"' } }
+    // Tells AI apps where to sign in (RFC 9728) so claude.ai / ChatGPT can start the OAuth flow.
+    { status: 401, headers: { ...CORS, "WWW-Authenticate": `Bearer resource_metadata="${resourceMetadataUrl()}", scope="read write"` } }
   );
 
 async function handle(req: Request) {
@@ -37,3 +39,6 @@ export async function GET() {
   return Response.json({ jsonrpc: "2.0", error: { code: -32000, message: "Method not allowed" }, id: null }, { status: 405, headers: { Allow: "POST" } });
 }
 export const DELETE = GET;
+export function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS });
+}

@@ -9,10 +9,11 @@ function ErrorBox({ state }: { state: FormState }) {
   return <p className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{state.error}</p>;
 }
 
-export function LoginForm() {
+export function LoginForm({ next }: { next?: string }) {
   const [state, action, pending] = useActionState(login, undefined);
   return (
     <form action={action} className="space-y-4">
+      {next && <input type="hidden" name="next" value={next} />}
       <label className="block">
         <Label>Email</Label>
         <input name="email" type="email" autoComplete="username" required className={inputClass} />
