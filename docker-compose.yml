@@ -1,0 +1,27 @@
+# ScaleUp Admin on the home server (see ~/server/PROJECTS.md)
+# - dashboard on 127.0.0.1:3007 (this PC only); public through Cloudflare Tunnel as http://scaleup-admin:3000
+#   (admin.scaleupweb.xyz)
+# - database: own database + user on the shared PostgreSQL ('db' network, host 'postgres')
+# - secrets in ./.env (chmod 600, never committed) — see .env.example
+# Update: git pull && docker compose up -d --build
+services:
+  app:
+    build: .
+    image: scaleup-admin
+    container_name: scaleup-admin
+    env_file: ./.env
+    environment:
+      TZ: Asia/Dhaka
+    ports: ["127.0.0.1:3007:3000"]
+    restart: unless-stopped
+    networks: [db, proxy]
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+networks:
+  db:
+    external: true
+  proxy:
+    external: true  # shared with cloudflared (admin.scaleupweb.xyz) and scaleup-web (website form leads)

@@ -1,36 +1,18 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ScaleUp Admin
 
-## Getting Started
+Operations dashboard for ScaleUp Web — `admin.scaleupweb.xyz`. Built multi-tenant (workspaces) so it can become a SaaS later.
 
-First, run the development server:
+**Phase 1 (now):** sign-in, leads (Excel import, filters, pipeline, notes, CSV export), website form leads.
+**Next:** WhatsApp / SMS campaigns, clients, agreements, invoices.
 
+Stack: Next.js 16, PostgreSQL + Drizzle ORM, Tailwind CSS 4.
+
+## Run on the server
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd ~/apps/scaleup-admin && git pull && docker compose up -d --build
 ```
+Settings go in `.env` (see `.env.example`). Database migrations run automatically on start.
+First account: open http://localhost:3007 on the server PC (setup only works from localhost).
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Change the database
+Edit `db/schema.ts`, then `npm run db:generate` and commit the new file in `drizzle/`.
