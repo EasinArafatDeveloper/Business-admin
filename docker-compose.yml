@@ -14,11 +14,32 @@ services:
       TZ: Asia/Dhaka
     ports: ["127.0.0.1:3007:3000"]
     restart: unless-stopped
-    networks: [db, proxy]
+    networks: [default, db, proxy]
     mem_limit: 1g
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
+
+  # WhatsApp Web session (linked by QR from the admin). Internal only: not on the tunnel network.
+  wa:
+    build: ./wa
+    image: scaleup-wa
+    container_name: scaleup-wa
+    environment:
+      TZ: Asia/Dhaka
+      WA_SECRET: ${WA_SECRET:?Set WA_SECRET in .env}
+      ADMIN_WEBHOOK_URL: http://app:3000/api/inbound/wa
+    volumes:
+      - wa_auth:/data/auth   # keeps the linked session across restarts
+    restart: unless-stopped
+    networks: [default]
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  wa_auth:
 
 networks:
   db:

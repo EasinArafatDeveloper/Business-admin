@@ -30,9 +30,9 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
           <Link
             href={`/campaigns/new${filtersToQuery({ ...filters, page: 1 })}`}
             className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-accent px-3 text-sm font-medium text-white"
-            title="Send an SMS campaign to the leads matching these filters"
+            title="Send an SMS or WhatsApp campaign to the leads matching these filters"
           >
-            <Megaphone className="h-4 w-4" /> SMS campaign ({nf.format(total)})
+            <Megaphone className="h-4 w-4" /> Campaign ({nf.format(total)})
           </Link>
         </div>
       </div>

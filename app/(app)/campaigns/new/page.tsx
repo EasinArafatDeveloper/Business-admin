@@ -14,9 +14,19 @@ export const metadata = { title: "New campaign" };
 
 export default async function NewCampaignPage({ searchParams }: PageProps<"/campaigns/new">) {
   const user = await requireUser();
-  const filters = parseFilters(await searchParams);
+  const sp = await searchParams;
+  const channel = sp.channel === "whatsapp" ? "whatsapp" : "sms";
+  const filters = parseFilters(sp);
   const query = filtersToQuery({ ...filters, page: 1 }).replace(/^\?/, "");
-  const [{ audience, matched, noNumber, duplicate }, balance] = await Promise.all([buildAudience(user.workspaceId, filters), getBalance()]);
+  const [{ audience, matched, noNumber, duplicate }, balance] = await Promise.all([
+    buildAudience(user.workspaceId, filters, channel),
+    channel === "sms" ? getBalance() : Promise.resolve(null)
+  ]);
+  const tabHref = (c: string) => {
+    const p = new URLSearchParams(query);
+    if (c === "whatsapp") p.set("channel", "whatsapp");
+    return `/campaigns/new${p.toString() ? `?${p}` : ""}`;
+  };
   const sample = audience[0];
 
   const described = Object.entries(filters)
@@ -28,7 +38,19 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
       <Link href={`/leads${query ? `?${query}` : ""}`} className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-fg">
         <ArrowLeft className="h-4 w-4" /> Back to leads
       </Link>
-      <h1 className="text-2xl font-semibold tracking-tight">New SMS campaign</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight">New campaign</h1>
+        <div className="inline-flex rounded-xl border border-line-strong p-1 text-sm">
+          {[
+            ["sms", "SMS"],
+            ["whatsapp", "WhatsApp"]
+          ].map(([c, label]) => (
+            <Link key={c} href={tabHref(c)} className={`rounded-lg px-4 py-1.5 ${channel === c ? "bg-accent text-white" : "text-muted hover:text-fg"}`}>
+              {label}
+            </Link>
+          ))}
+        </div>
+      </div>
 
       <Card className="p-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -36,7 +58,7 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
             <div className="text-xs text-muted">Audience (from your Leads filters)</div>
             <div className="mt-1 text-3xl font-semibold">{nf.format(audience.length)} people</div>
             <div className="mt-1 text-xs text-muted-2">
-              {nf.format(matched)} leads matched · {nf.format(noNumber)} without a valid BD mobile · {nf.format(duplicate)} duplicate numbers removed · opted-out leads excluded
+              {nf.format(matched)} leads matched · {nf.format(noNumber)} without a valid BD {channel === "whatsapp" ? "WhatsApp/mobile" : "mobile"} · {nf.format(duplicate)} duplicate numbers removed · opted-out leads excluded
             </div>
           </div>
           <div className="max-w-md text-right text-xs text-muted">
@@ -51,6 +73,8 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
       </Card>
 
       <CampaignForm
+        key={channel}
+        channel={channel}
         audienceQuery={query}
         audienceSize={audience.length}
         groups={groupAudience(audience)}

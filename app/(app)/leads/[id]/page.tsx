@@ -89,7 +89,10 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
         </div>
         <div className="flex flex-col items-end gap-2">
           <StatusPicker leadId={lead.id} status={lead.status} />
-          <SmsOptOutToggle leadId={lead.id} optOut={lead.smsOptOut} />
+          <div className="flex gap-1.5">
+            <SmsOptOutToggle leadId={lead.id} optOut={lead.smsOptOut} />
+            <SmsOptOutToggle leadId={lead.id} optOut={lead.waOptOut} channel="whatsapp" />
+          </div>
         </div>
       </div>
 
@@ -160,7 +163,7 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
                 <li key={a.id} className="relative">
                   <span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-accent" />
                   <div className="text-[11px] text-muted-2">
-                    {a.type === "note" ? "Note" : a.type === "status" ? "Status" : a.type === "form" ? "Website form" : a.type === "click" ? "SMS click" : a.type}
+                    {a.type === "note" ? "Note" : a.type === "status" ? "Status" : a.type === "form" ? "Website form" : a.type === "click" ? "Link click" : a.type === "wa_reply" ? "WhatsApp reply" : a.type}
                     {a.user ? ` · ${a.user}` : ""} · {timeAgo(a.createdAt)}
                   </div>
                   <p className="whitespace-pre-wrap text-sm">{a.body}</p>

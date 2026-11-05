@@ -22,7 +22,7 @@ export default async function CampaignsPage() {
     <div className="mx-auto max-w-6xl space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">SMS campaigns</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Campaigns</h1>
           <p className="mt-1 text-sm text-muted">Every person gets their own link. Only real human clicks are counted — link-preview bots are filtered out.</p>
         </div>
         <div className="flex items-center gap-2">
@@ -65,7 +65,9 @@ export default async function CampaignsPage() {
                     <Link href={`/campaigns/${c.id}`} className="font-medium hover:text-accent-soft">
                       {c.name}
                     </Link>
-                    <div className="text-[11px] text-muted-2">created {timeAgo(c.createdAt)}</div>
+                    <div className="text-[11px] text-muted-2">
+                      {c.channel === "whatsapp" ? "WhatsApp" : "SMS"} · created {timeAgo(c.createdAt)}
+                    </div>
                   </td>
                   <td className="px-3 py-3">
                     <CampaignStatus status={c.status} />

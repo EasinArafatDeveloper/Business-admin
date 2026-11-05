@@ -1,0 +1,12 @@
+{
+  "name": "scaleup-wa",
+  "private": true,
+  "type": "module",
+  "description": "WhatsApp Web connection for ScaleUp Admin (QR link, send, number check, incoming replies)",
+  "scripts": { "start": "node server.mjs" },
+  "dependencies": {
+    "@whiskeysockets/baileys": "6.7.24",
+    "pino": "10.4.0",
+    "qrcode": "1.5.4"
+  }
+}

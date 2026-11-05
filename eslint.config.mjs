@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Separate plain-Node WhatsApp service (not part of the Next app)
+    "wa/**",
   ]),
 ]);
 

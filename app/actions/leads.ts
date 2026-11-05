@@ -68,11 +68,11 @@ export async function addLeadNote(leadId: number, formData: FormData) {
 }
 
 /** "Don't SMS me" — excluded from every future campaign. */
-export async function setSmsOptOut(leadId: number, optOut: boolean) {
+export async function setSmsOptOut(leadId: number, optOut: boolean, channel: "sms" | "whatsapp" = "sms") {
   const user = await requireUser();
   const changed = await db
     .update(L)
-    .set({ smsOptOut: optOut, updatedAt: new Date() })
+    .set({ ...(channel === "whatsapp" ? { waOptOut: optOut } : { smsOptOut: optOut }), updatedAt: new Date() })
     .where(and(eq(L.id, leadId), eq(L.workspaceId, user.workspaceId)))
     .returning({ id: L.id });
   if (changed.length) {
@@ -81,7 +81,7 @@ export async function setSmsOptOut(leadId: number, optOut: boolean) {
       leadId,
       userId: user.id,
       type: "status",
-      body: optOut ? "Opted out of SMS" : "SMS allowed again"
+      body: `${optOut ? "Opted out of" : "Allowed again:"} ${channel === "whatsapp" ? "WhatsApp" : "SMS"}`
     });
   }
   revalidatePath(`/leads/${leadId}`);

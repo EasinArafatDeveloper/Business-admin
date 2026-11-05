@@ -7,3 +7,4 @@ node_modules
 *.tsbuildinfo
 Dockerfile
 docker-compose.yml
+wa/node_modules

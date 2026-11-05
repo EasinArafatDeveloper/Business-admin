@@ -89,6 +89,7 @@ export const leads = pgTable(
 
     /** SMS engagement — only verified human clicks count (see lib/tracking.ts). */
     smsOptOut: boolean("sms_opt_out").notNull().default(false),
+    waOptOut: boolean("wa_opt_out").notNull().default(false),
     smsClicks: integer("sms_clicks").notNull().default(0),
     smsCampaignsClicked: integer("sms_campaigns_clicked").notNull().default(0),
     lastClickedAt: timestamp("last_clicked_at", { withTimezone: true }),
@@ -169,7 +170,14 @@ export const campaigns = pgTable("campaigns", {
   /** The /leads filter query the audience was built from (for reference). */
   audienceQuery: text("audience_query"),
   status: text("status").notNull().default("draft"),
+  /** sms | whatsapp */
+  channel: text("channel").notNull().default("sms"),
   ratePerMinute: integer("rate_per_minute").notNull().default(30),
+  /** WhatsApp pacing: random gap between messages, max per day (all WA campaigns of the workspace). */
+  minDelaySec: integer("min_delay_sec").notNull().default(30),
+  maxDelaySec: integer("max_delay_sec").notNull().default(90),
+  dailyLimit: integer("daily_limit").notNull().default(150),
+  nextSendAt: timestamp("next_send_at", { withTimezone: true }),
   totalRecipients: integer("total_recipients").notNull().default(0),
   sentCount: integer("sent_count").notNull().default(0),
   failedCount: integer("failed_count").notNull().default(0),
@@ -239,3 +247,22 @@ export const clickEvents = pgTable(
 
 export type Campaign = typeof campaigns.$inferSelect;
 export type CampaignRecipient = typeof campaignRecipients.$inferSelect;
+
+/** Messages people send back to us (WhatsApp replies now, email later) — matched to a lead when possible. */
+export const inboundMessages = pgTable(
+  "inbound_messages",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull(), // whatsapp | email
+    sender: text("sender").notNull(),
+    senderName: text("sender_name"),
+    body: text("body").notNull(),
+    leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    optOut: boolean("opt_out").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("inbound_messages_ws_idx").on(t.workspaceId, t.createdAt)]
+);

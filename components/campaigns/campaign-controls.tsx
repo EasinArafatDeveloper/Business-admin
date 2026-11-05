@@ -27,7 +27,7 @@ export function CampaignControls({ id, status, total, cost }: { id: number; stat
         <Button
           disabled={pending}
           onClick={() => {
-            if (status === "draft" && !confirm(`Send this SMS to ${total} people? Estimated cost ${cost}.`)) return;
+            if (status === "draft" && !confirm(`Send this campaign to ${total} people?${cost ? ` Estimated cost ${cost}.` : ""}`)) return;
             run(startCampaign);
           }}
         >
@@ -52,11 +52,13 @@ export function CampaignControls({ id, status, total, cost }: { id: number; stat
   );
 }
 
-export function TestSmsForm({ id }: { id: number }) {
+export function TestSmsForm({ id, channel = "sms" }: { id: number; channel?: string }) {
   const [state, action, pending] = useActionState(sendTestSms.bind(null, id), undefined);
   return (
     <form action={action} className="space-y-2">
-      <Label hint="costs 1 SMS · link goes straight to the destination">Send a test to your phone</Label>
+      <Label hint={channel === "whatsapp" ? "link goes straight to the destination" : "costs 1 SMS · link goes straight to the destination"}>
+        Send a test {channel === "whatsapp" ? "WhatsApp" : "SMS"} to your phone
+      </Label>
       <div className="flex gap-2">
         <input name="phone" required placeholder="01XXXXXXXXX" inputMode="tel" className={inputClass} />
         <Button type="submit" variant="secondary" disabled={pending} className="shrink-0">

@@ -77,18 +77,18 @@ export function NoteForm({ leadId }: { leadId: number }) {
   );
 }
 
-export function SmsOptOutToggle({ leadId, optOut }: { leadId: number; optOut: boolean }) {
+export function SmsOptOutToggle({ leadId, optOut, channel = "sms" }: { leadId: number; optOut: boolean; channel?: "sms" | "whatsapp" }) {
   const [pending, startTransition] = useTransition();
   return (
     <button
       disabled={pending}
-      onClick={() => startTransition(() => setSmsOptOut(leadId, !optOut))}
+      onClick={() => startTransition(() => setSmsOptOut(leadId, !optOut, channel))}
       className={cn(
         "rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-50",
         optOut ? "border-danger/40 bg-danger/10 text-danger" : "border-line-strong text-muted hover:text-fg"
       )}
     >
-      {optOut ? "Don't SMS — on" : "Don't SMS"}
+      {optOut ? `Don't ${channel === "whatsapp" ? "WhatsApp" : "SMS"} — on` : `Don't ${channel === "whatsapp" ? "WhatsApp" : "SMS"}`}
     </button>
   );
 }

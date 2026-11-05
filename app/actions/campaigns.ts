@@ -10,6 +10,7 @@ import { createCampaignWithRecipients } from "@/lib/campaigns";
 import { parseFilters } from "@/lib/leads-query";
 import { normalizeBdMobile, renderTemplate } from "@/lib/sms-text";
 import { sendSms } from "@/lib/sms";
+import { waSend } from "@/lib/wa";
 import { safeUrl } from "@/lib/tracking";
 
 const C = schema.campaigns;
@@ -21,7 +22,11 @@ const createSchema = z.object({
   destinationUrl: z.string().trim().refine((u) => Boolean(safeUrl(u)), "Enter a full link starting with https://"),
   ratePerMinute: z.coerce.number().int().min(5).max(300),
   audienceQuery: z.string().max(2000).default(""),
-  cleanNames: z.string().optional()
+  cleanNames: z.string().optional(),
+  channel: z.enum(["sms", "whatsapp"]).default("sms"),
+  minDelaySec: z.coerce.number().int().min(10).max(600).default(30),
+  maxDelaySec: z.coerce.number().int().min(10).max(1200).default(90),
+  dailyLimit: z.coerce.number().int().min(10).max(1000).default(150)
 });
 
 export async function createCampaign(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -43,7 +48,11 @@ export async function createCampaign(_: ActionState, formData: FormData): Promis
       audienceQuery: d.audienceQuery,
       ratePerMinute: d.ratePerMinute,
       filters,
-      cleanNames: d.cleanNames === "on"
+      cleanNames: d.cleanNames === "on",
+      channel: d.channel,
+      minDelaySec: Math.min(d.minDelaySec, d.maxDelaySec),
+      maxDelaySec: Math.max(d.minDelaySec, d.maxDelaySec),
+      dailyLimit: d.dailyLimit
     });
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Could not create the campaign" };
@@ -83,13 +92,17 @@ export async function cancelCampaign(id: number) {
   revalidatePath(`/campaigns/${id}`);
 }
 
-/** Sends the message to your own number first. The link in a test goes straight to the destination (not tracked). */
+/** Sends the message to your own number first (same channel). The link in a test goes straight to the destination. */
 export async function sendTestSms(id: number, _: ActionState, formData: FormData): Promise<ActionState> {
   const o = await owned(id);
   if (!o) return { error: "Campaign not found" };
   const phone = normalizeBdMobile(String(formData.get("phone") ?? ""));
   if (!phone) return { error: "Enter a Bangladeshi mobile number (01XXXXXXXXX)" };
   const text = renderTemplate(o.c.message, { name: "Test", service: "website", link: o.c.destinationUrl });
+  if (o.c.channel === "whatsapp") {
+    const wa = await waSend(phone, text);
+    return wa.ok ? { ok: `Test WhatsApp sent to ${phone}` } : { error: `Not sent — ${wa.info ?? wa.result}` };
+  }
   const res = await sendSms(phone, text);
   return res.ok ? { ok: `Test SMS sent to ${phone}` } : { error: `Not sent — ${res.info} (${res.code})` };
 }

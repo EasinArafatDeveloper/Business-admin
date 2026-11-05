@@ -55,6 +55,22 @@ export function cleanName(raw: string | null | undefined): string | null {
   return (kept.match(/[A-Za-z]/g)?.length ?? 0) >= 2 ? kept : null;
 }
 
+/**
+ * Spintax: "{Hi|Hello|Assalamu Alaikum}" → one option picked at random per person, so a
+ * campaign isn't hundreds of identical texts. {name} {service} {link} (no "|") are left alone.
+ */
+const SPIN = /\{([^{}|]*(?:\|[^{}|]*)+)\}/g;
+export function spin(text: string, pick: (n: number) => number = (n) => Math.floor(Math.random() * n)) {
+  return text.replace(SPIN, (_, opts: string) => {
+    const o = opts.split("|");
+    return o[pick(o.length)];
+  });
+}
+/** The longest version of a spintax text (for a safe cost estimate). */
+export function spinLongest(text: string) {
+  return text.replace(SPIN, (_, opts: string) => opts.split("|").reduce((a, b) => ([...b].length > [...a].length ? b : a), ""));
+}
+
 export type TemplateVars = { name?: string | null; service?: string | null; link: string };
 export type RenderOptions = { cleanNames?: boolean };
 
@@ -62,7 +78,7 @@ export type RenderOptions = { cleanNames?: boolean };
 export function renderTemplate(template: string, v: TemplateVars, opts: RenderOptions = {}) {
   const name = opts.cleanNames ? cleanName(v.name) ?? NAME_FALLBACK : (v.name ?? "").trim() || NAME_FALLBACK;
   const service = opts.cleanNames ? cleanName(v.service) ?? SERVICE_FALLBACK : (v.service ?? "").trim() || SERVICE_FALLBACK;
-  return template.replace(/\{name\}/gi, name).replace(/\{service\}/gi, service).replace(/\{link\}/gi, v.link);
+  return spin(template).replace(/\{name\}/gi, name).replace(/\{service\}/gi, service).replace(/\{link\}/gi, v.link);
 }
 
 /** Length a tracking link adds to the SMS (base + "/" + 6-char code). */
@@ -109,7 +125,8 @@ export function groupAudience(people: { name: string | null; service: string | n
 }
 
 /** Exact total parts for a template over the grouped audience. */
-export function estimateParts(template: string, groups: AudienceGroup[], linkLen: number, opts: RenderOptions = {}) {
+export function estimateParts(rawTemplate: string, groups: AudienceGroup[], linkLen: number, opts: RenderOptions = {}) {
+  const template = spinLongest(rawTemplate);
   const fixed = template.replace(/\{name\}/gi, "").replace(/\{service\}/gi, "").replace(/\{link\}/gi, "");
   const fixedLen = smsLength(fixed);
   const nName = (template.match(/\{name\}/gi) ?? []).length;

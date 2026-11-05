@@ -42,3 +42,6 @@ next-env.d.ts
 
 # local production build (NEXT_DIST_DIR)
 /.next-build/
+
+# WhatsApp service dependencies
+/wa/node_modules/

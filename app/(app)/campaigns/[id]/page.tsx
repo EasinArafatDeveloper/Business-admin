@@ -85,17 +85,27 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
             <CampaignStatus status={c.status} />
           </div>
           <p className="mt-1 text-sm text-muted">
-            {c.ratePerMinute} SMS/min · {nf.format(totals.parts)} SMS parts in total ({nf.format(totals.multi)} people need 2+) · cost {cost} · created {timeAgo(c.createdAt)}
+            {c.channel === "whatsapp" ? (
+              <>
+                WhatsApp · {c.minDelaySec}–{c.maxDelaySec}s gap · max {c.dailyLimit}/day · 9am–9pm
+                {c.status === "sending" && c.nextSendAt ? ` · next message at ${c.nextSendAt.toLocaleTimeString("en-GB", { timeZone: "Asia/Dhaka" })}` : ""}
+              </>
+            ) : (
+              <>
+                SMS · {c.ratePerMinute}/min · {nf.format(totals.parts)} parts ({nf.format(totals.multi)} people need 2+) · cost {cost}
+              </>
+            )}{" "}
+            · created {timeAgo(c.createdAt)}
           </p>
         </div>
-        <CampaignControls id={c.id} status={c.status} total={c.totalRecipients} cost={cost} />
+        <CampaignControls id={c.id} status={c.status} total={c.totalRecipients} cost={c.channel === "whatsapp" ? "" : cost} />
       </div>
 
       {c.lastError && c.status === "paused" && (
         <div className="flex items-start gap-2 rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           <span>
-            Paused automatically: <b>{c.lastError}</b>. Fix it (e.g. recharge BulkSMSBD), then press Resume.
+            Paused automatically: <b>{c.lastError}</b>. Fix it ({c.channel === "whatsapp" ? "reconnect WhatsApp on the WhatsApp page" : "e.g. recharge BulkSMSBD"}), then press Resume.
           </span>
         </div>
       )}
@@ -121,7 +131,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
           <p className="mt-2 truncate text-xs text-muted-2">Link goes to {c.destinationUrl}</p>
         </Card>
         <Card className="p-5">
-          <TestSmsForm id={c.id} />
+          <TestSmsForm id={c.id} channel={c.channel} />
         </Card>
       </div>
 

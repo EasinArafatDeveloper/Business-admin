@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  MessageCircle,
   FileSpreadsheet,
   FileText,
   LayoutDashboard,
@@ -24,7 +25,8 @@ const groups: { title?: string; items: Item[] }[] = [
       { href: "/", label: "Dashboard", icon: LayoutDashboard },
       { href: "/leads", label: "Leads", icon: Users },
       { href: "/leads/import", label: "Import", icon: FileSpreadsheet },
-      { href: "/campaigns", label: "SMS campaigns", icon: Megaphone }
+      { href: "/campaigns", label: "Campaigns", icon: Megaphone },
+      { href: "/whatsapp", label: "WhatsApp", icon: MessageCircle }
     ]
   },
   {
