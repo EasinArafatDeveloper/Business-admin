@@ -215,6 +215,12 @@ export const emailSenders = pgTable("email_senders", {
   signature: text("signature"),
   verifiedAt: timestamp("verified_at", { withTimezone: true }),
   lastError: text("last_error"),
+  /** Reply sync: read this mailbox over IMAP and bring replies from leads into the Inbox. */
+  imapHost: text("imap_host"),
+  imapUidValidity: text("imap_uid_validity"),
+  imapLastUid: integer("imap_last_uid").notNull().default(0),
+  imapCheckedAt: timestamp("imap_checked_at", { withTimezone: true }),
+  imapError: text("imap_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
 });
 
@@ -295,9 +301,15 @@ export const inboundMessages = pgTable(
     optOut: boolean("opt_out").notNull().default(false),
     /** in = they wrote to us · out = our reply from the Inbox */
     direction: text("direction").notNull().default("in"),
+    /** Email only: subject, the Message-ID (for threading + de-duplication) and the mailbox it came through. */
+    subject: text("subject"),
+    externalId: text("external_id"),
+    emailSenderId: integer("email_sender_id").references(() => emailSenders.id, { onDelete: "set null" }),
     userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
     readAt: timestamp("read_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
   },
-  (t) => [index("inbound_messages_ws_idx").on(t.workspaceId, t.createdAt), index("inbound_messages_sender_idx").on(t.workspaceId, t.sender)]
+  (t) => [index("inbound_messages_ws_idx").on(t.workspaceId, t.createdAt), index("inbound_messages_sender_idx").on(t.workspaceId, t.sender),
+    uniqueIndex("inbound_messages_external_idx").on(t.workspaceId, t.externalId)
+  ]
 );

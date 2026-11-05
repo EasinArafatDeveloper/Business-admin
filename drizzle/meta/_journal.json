@@ -43,6 +43,13 @@
       "when": 1793879566631,
       "tag": "0005_email_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793881319095,
+      "tag": "0006_email_inbox",
+      "breakpoints": true
     }
   ]
 }

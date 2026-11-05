@@ -5,7 +5,8 @@ import { SendHorizontal } from "lucide-react";
 import { replyToThread } from "@/app/actions/inbox";
 import { Button } from "@/components/ui";
 
-export function ReplyBox({ sender, disabledReason }: { sender: string; disabledReason?: string }) {
+export function ReplyBox({ sender, channel = "whatsapp", disabledReason }: { sender: string; channel?: string; disabledReason?: string }) {
+  const email = channel === "email";
   const [state, action, pending] = useActionState(replyToThread.bind(null, sender), undefined);
   const form = useRef<HTMLFormElement>(null);
 
@@ -22,7 +23,7 @@ export function ReplyBox({ sender, disabledReason }: { sender: string; disabledR
           name="text"
           rows={2}
           required
-          placeholder="Reply on WhatsApp…"
+          placeholder={email ? "Reply by email…" : "Reply on WhatsApp…"}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) form.current?.requestSubmit();
           }}
@@ -34,7 +35,7 @@ export function ReplyBox({ sender, disabledReason }: { sender: string; disabledR
         </Button>
       </div>
       <div className="mt-1.5 flex justify-between text-[11px] text-muted-2">
-        <span>Sent from the linked campaign number · Ctrl+Enter to send</span>
+        <span>{email ? "Sent from the address they wrote to, in the same thread" : "Sent from the linked campaign number"} · Ctrl+Enter to send</span>
         {state?.error && <span className="text-danger">{state.error}</span>}
       </div>
     </form>

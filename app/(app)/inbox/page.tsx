@@ -34,7 +34,8 @@ export default async function InboxPage({ searchParams }: PageProps<"/inbox">) {
   const user = await requireUser();
   const sp = await searchParams;
   const filter = FILTERS.find(([k]) => k === sp.filter)?.[0] ?? "all";
-  const open = typeof sp.c === "string" ? sp.c.replace(/\D/g, "") : "";
+  // A thread is a phone number (WhatsApp) or an email address.
+  const open = typeof sp.c === "string" ? sp.c.trim().toLowerCase().slice(0, 254) : "";
 
   // Opening a thread marks its messages as read.
   let markedRead = 0;
@@ -91,7 +92,7 @@ export default async function InboxPage({ searchParams }: PageProps<"/inbox">) {
         .orderBy(asc(M.createdAt))
         .limit(300)
     : [];
-  const title = (t: Thread) => (t.leadId ? leadById.get(t.leadId)?.name : null) ?? t.name ?? `+${t.sender}`;
+  const title = (t: Thread) => (t.leadId ? leadById.get(t.leadId)?.name : null) ?? t.name ?? (t.sender.includes("@") ? t.sender : `+${t.sender}`);
   const href = (o: { c?: string | null; filter?: string }) => {
     const p = new URLSearchParams();
     const f = o.filter ?? filter;
@@ -101,14 +102,15 @@ export default async function InboxPage({ searchParams }: PageProps<"/inbox">) {
     return `/inbox${p.size ? `?${p}` : ""}`;
   };
   const currentLead = current?.leadId ? leadById.get(current.leadId) : undefined;
-  const threadName = current ? title(current) : messages[0] ? `+${open}` : "";
+  const threadName = current ? title(current) : open.includes("@") ? open : `+${open}`;
+  const threadSubject = [...messages].reverse().find((m) => m.subject)?.subject?.replace(/^(re:\s*)+/i, "");
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       {markedRead > 0 && <RefreshOnce key={open} />}
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
-        <p className="mt-1 text-sm text-muted">Replies to your campaigns. Anyone who replies becomes “Interested”; “STOP” opts them out.</p>
+        <p className="mt-1 text-sm text-muted">WhatsApp and email replies to your campaigns. Anyone who replies becomes “Interested”; “STOP” opts them out.</p>
       </div>
 
       <Card className="grid min-h-[560px] grid-cols-1 overflow-hidden lg:grid-cols-[340px_minmax(0,1fr)]">
@@ -176,7 +178,10 @@ export default async function InboxPage({ searchParams }: PageProps<"/inbox">) {
                 </Link>
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-medium">{threadName}</div>
-                  <div className="text-xs text-muted-2">+{open}</div>
+                  <div className="truncate text-xs text-muted-2">
+                    {open.includes("@") ? open : `+${open}`}
+                    {threadSubject && ` · ${threadSubject}`}
+                  </div>
                 </div>
                 {currentLead && (
                   <>
@@ -207,10 +212,11 @@ export default async function InboxPage({ searchParams }: PageProps<"/inbox">) {
               </div>
               <ReplyBox
                 sender={open}
+                channel={current?.channel ?? "whatsapp"}
                 disabledReason={
                   current?.optOut
                     ? "This person replied STOP, so replies are turned off to respect that."
-                    : current && current.channel !== "whatsapp"
+                    : current && !["whatsapp", "email"].includes(current.channel)
                       ? "Replies for this channel are coming soon."
                       : undefined
                 }

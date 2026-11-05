@@ -21,16 +21,7 @@ export type ChannelHealth = {
     window: string;
   };
   email: {
-    senders: {
-      id: number;
-      fromName: string;
-      fromEmail: string;
-      smtpHost: string;
-      dailyLimit: number;
-      sentToday: number;
-      lastError: string | null;
-      verifiedAt: Date | null;
-    }[];
+    senders: Awaited<ReturnType<typeof getEmailSenders>>;
     sentToday: number;
     dailyLimit: number;
   };
@@ -46,7 +37,10 @@ export async function getEmailSenders(workspaceId: number) {
       smtpHost: S.smtpHost,
       dailyLimit: S.dailyLimit,
       lastError: S.lastError,
-      verifiedAt: S.verifiedAt
+      verifiedAt: S.verifiedAt,
+      imapHost: S.imapHost,
+      imapCheckedAt: S.imapCheckedAt,
+      imapError: S.imapError
     })
     .from(S)
     .where(eq(S.workspaceId, workspaceId))

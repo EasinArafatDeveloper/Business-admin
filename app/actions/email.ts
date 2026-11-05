@@ -7,6 +7,7 @@ import { db, schema } from "@/db";
 import { requireUser } from "@/lib/auth";
 import { SMTP_PRESETS, normalizeEmail, sendEmail, verifySender } from "@/lib/email";
 import { encryptSecret } from "@/lib/secrets";
+import { IMAP_FOR_SMTP, syncSender } from "@/lib/email-inbox";
 
 const S = schema.emailSenders;
 export type SenderState = { error?: string; ok?: string } | undefined;
@@ -20,7 +21,8 @@ const addSchema = z.object({
   smtpHost: z.string().trim().max(200).optional(),
   smtpPort: z.coerce.number().int().min(1).max(65535).optional(),
   replyTo: z.string().trim().toLowerCase().email().optional().or(z.literal("")),
-  dailyLimit: z.coerce.number().int().min(10).max(2000)
+  dailyLimit: z.coerce.number().int().min(10).max(2000),
+  syncReplies: z.string().optional()
 });
 
 export async function addSender(_: SenderState, formData: FormData): Promise<SenderState> {
@@ -41,7 +43,8 @@ export async function addSender(_: SenderState, formData: FormData): Promise<Sen
     smtpUser: d.smtpUser || d.fromEmail,
     // App passwords are often copied with spaces ("abcd efgh …").
     smtpPassEnc: encryptSecret(d.preset === "gmail" ? d.smtpPass.replace(/\s+/g, "") : d.smtpPass),
-    dailyLimit: d.dailyLimit
+    dailyLimit: d.dailyLimit,
+    imapHost: d.syncReplies === "on" ? (IMAP_FOR_SMTP[smtpHost] ?? null) : null
   };
 
   // Only save a sender that can actually log in.
@@ -50,6 +53,18 @@ export async function addSender(_: SenderState, formData: FormData): Promise<Sen
   await db.insert(S).values({ ...row, verifiedAt: new Date() });
   revalidatePath("/channels");
   return { ok: `Connected ${d.fromEmail}` };
+}
+
+/** Turns reply sync on/off; turning it on also checks the mailbox right away. */
+export async function setReplySync(id: number, on: boolean) {
+  const user = await requireUser();
+  const [s] = await db.select().from(S).where(and(eq(S.id, id), eq(S.workspaceId, user.workspaceId))).limit(1);
+  if (!s) return;
+  const imapHost = on ? (IMAP_FOR_SMTP[s.smtpHost] ?? null) : null;
+  await db.update(S).set({ imapHost, imapError: null }).where(eq(S.id, id));
+  if (imapHost) await syncSender({ ...s, imapHost });
+  revalidatePath("/channels");
+  revalidatePath("/inbox");
 }
 
 export async function removeSender(id: number) {

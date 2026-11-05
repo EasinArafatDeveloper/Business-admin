@@ -76,7 +76,7 @@ function smtpError(e: unknown): { fatal: boolean; code: string; info: string } {
   return { fatal: false, code: String(rc || err.code || "error"), info };
 }
 
-export async function sendEmail(sender: EmailSender, msg: { to: string; subject: string; text: string; unsubscribeUrl?: string }): Promise<SendResult> {
+export async function sendEmail(sender: EmailSender, msg: { to: string; subject: string; text: string; unsubscribeUrl?: string; inReplyTo?: string; references?: string[] }): Promise<SendResult> {
   try {
     const info = await transport(sender).sendMail({
       from: { name: sender.fromName, address: sender.fromEmail },
@@ -85,6 +85,8 @@ export async function sendEmail(sender: EmailSender, msg: { to: string; subject:
       subject: msg.subject,
       text: msg.text,
       html: textToHtml(msg.text),
+      inReplyTo: msg.inReplyTo,
+      references: msg.references,
       headers: msg.unsubscribeUrl ? { "List-Unsubscribe": `<${msg.unsubscribeUrl}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } : undefined
     });
     return { ok: true, id: info.messageId };

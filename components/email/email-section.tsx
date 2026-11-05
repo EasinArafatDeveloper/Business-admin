@@ -4,7 +4,9 @@ import { checkDomain } from "@/lib/email-dns";
 import { SMTP_PRESETS } from "@/lib/email";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui";
-import { AddSenderForm, RemoveSenderButton, TestSenderForm } from "@/components/email/sender-forms";
+import { AddSenderForm, RemoveSenderButton, ReplySyncToggle, TestSenderForm } from "@/components/email/sender-forms";
+import { IMAP_FOR_SMTP } from "@/lib/email-inbox";
+import { timeAgo } from "@/lib/utils";
 
 const providerName = (host: string) => Object.values(SMTP_PRESETS).find((p) => p.host === host)?.label ?? host;
 
@@ -52,6 +54,20 @@ export async function EmailSection({ email, userEmail }: { email: ChannelHealth[
             <div className="mt-3 max-w-md">
               <TestSenderForm id={s.id} defaultTo={userEmail} />
             </div>
+            {IMAP_FOR_SMTP[s.smtpHost] && (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3 text-xs">
+                <span className={cn(s.imapError ? "text-danger" : "text-muted")}>
+                  {!s.imapHost
+                    ? "Replies stay in your mailbox only"
+                    : s.imapError
+                      ? `Reply sync error: ${s.imapError}`
+                      : s.imapCheckedAt
+                        ? `Replies sync to Inbox · checked ${timeAgo(s.imapCheckedAt)}`
+                        : "Replies sync to Inbox · first check within 2 minutes"}
+                </span>
+                <ReplySyncToggle id={s.id} on={Boolean(s.imapHost)} />
+              </div>
+            )}
           </Card>
         );
       })}

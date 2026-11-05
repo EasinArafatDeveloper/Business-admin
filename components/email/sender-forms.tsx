@@ -2,7 +2,7 @@
 
 import { useActionState, useState, useTransition } from "react";
 import { Plus, Send, Trash2 } from "lucide-react";
-import { addSender, removeSender, testSender } from "@/app/actions/email";
+import { addSender, removeSender, setReplySync, testSender } from "@/app/actions/email";
 import { Button, Card, Label, inputClass } from "@/components/ui";
 
 type Preset = { key: string; label: string; host: string; port: number; limit: number; hint: string };
@@ -85,6 +85,17 @@ export function AddSenderForm({ presets, suggestedFrom, startOpen }: { presets: 
             <input name="replyTo" type="email" placeholder="same as from address" className={inputClass} />
           </label>
         </div>
+        {(preset === "gmail" || preset === "zoho") && (
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-ink-alt p-3">
+            <input type="checkbox" name="syncReplies" defaultChecked className="mt-0.5 accent-[#3b6bff]" />
+            <span className="text-sm">
+              Bring replies into the Inbox
+              <span className="mt-0.5 block text-xs text-muted">
+                Checks this mailbox every 2 minutes. Only emails from people you emailed or your leads are imported — your other mail is never read.
+              </span>
+            </span>
+          </label>
+        )}
         <p className="text-xs text-muted-2">{p.hint}</p>
         {gmail && (
           <p className="rounded-xl bg-warning/10 px-3 py-2 text-xs text-warning">
@@ -115,6 +126,15 @@ export function TestSenderForm({ id, defaultTo }: { id: number; defaultTo?: stri
       {state?.error && <p className="text-xs text-danger">{state.error}</p>}
       {state?.ok && <p className="text-xs text-success">{state.ok}</p>}
     </form>
+  );
+}
+
+export function ReplySyncToggle({ id, on }: { id: number; on: boolean }) {
+  const [pending, start] = useTransition();
+  return (
+    <Button type="button" size="sm" variant={on ? "ghost" : "secondary"} disabled={pending} onClick={() => start(() => setReplySync(id, !on))}>
+      {pending ? "Checking…" : on ? "Turn off" : "Bring replies into Inbox"}
+    </Button>
   );
 }
 
