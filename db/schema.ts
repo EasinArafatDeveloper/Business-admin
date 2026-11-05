@@ -194,6 +194,8 @@ export const campaignRecipients = pgTable(
     leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
     phone: text("phone").notNull(),
     message: text("message").notNull(),
+    /** SMS parts this message costs (see lib/sms-text.ts). */
+    parts: integer("parts").notNull().default(1),
     trackingCode: text("tracking_code").notNull().unique(),
     /** queued | sending | sent | failed */
     status: text("status").notNull().default("queued"),

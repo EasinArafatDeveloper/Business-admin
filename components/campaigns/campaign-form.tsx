@@ -2,7 +2,7 @@
 
 import { useActionState, useRef, useState } from "react";
 import { createCampaign } from "@/app/actions/campaigns";
-import { renderTemplate, sampleLink, smsParts } from "@/lib/sms-text";
+import { type AudienceGroup, estimateParts, renderTemplate, sampleLink, smsParts } from "@/lib/sms-text";
 import { Button, Card, Label, inputClass } from "@/components/ui";
 import { cn, nf } from "@/lib/utils";
 
@@ -12,6 +12,7 @@ const DEFAULT_MESSAGE =
 export function CampaignForm({
   audienceQuery,
   audienceSize,
+  groups,
   sample,
   linkBase,
   rate,
@@ -19,6 +20,7 @@ export function CampaignForm({
 }: {
   audienceQuery: string;
   audienceSize: number;
+  groups: AudienceGroup[];
   sample: { name: string; service: string };
   linkBase: string;
   rate: number;
@@ -27,11 +29,14 @@ export function CampaignForm({
   const [state, action, pending] = useActionState(createCampaign, undefined);
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
   const [speed, setSpeed] = useState(30);
+  const [cleanNames, setCleanNames] = useState(true);
   const ta = useRef<HTMLTextAreaElement>(null);
 
-  const preview = renderTemplate(message, { ...sample, link: sampleLink(linkBase) });
+  const link = sampleLink(linkBase);
+  const preview = renderTemplate(message, { ...sample, link }, { cleanNames });
   const { parts, chars, unicode } = smsParts(preview);
-  const cost = audienceSize * parts * rate;
+  const est = estimateParts(message, groups, link.length, { cleanNames });
+  const cost = est.totalParts * rate;
   const minutes = Math.ceil(audienceSize / speed);
   const notEnough = balance != null && cost > balance;
 
@@ -56,7 +61,7 @@ export function CampaignForm({
         </label>
 
         <div>
-          <Label hint={`${chars} chars · ${parts} SMS part${parts > 1 ? "s" : ""}${unicode ? " · Bangla/emoji = 70 per part" : ""}`}>Message</Label>
+          <Label hint={`preview: ${chars} chars · ${parts} part${parts > 1 ? "s" : ""}${unicode ? " · Bangla/emoji → 70 per part" : " · English → 160 per part"}`}>Message</Label>
           <textarea
             ref={ta}
             name="message"
@@ -79,6 +84,16 @@ export function CampaignForm({
             ))}
           </div>
         </div>
+
+        <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-ink-alt p-3">
+          <input type="checkbox" name="cleanNames" checked={cleanNames} onChange={(e) => setCleanNames(e.target.checked)} className="mt-0.5 accent-[#3b6bff]" />
+          <span className="text-sm">
+            Remove Bangla & emoji from names
+            <span className="mt-0.5 block text-xs text-muted">
+              “Smart Shop 🛍️” → “Smart Shop”, a fully Bangla name → “Sir/Madam”. Keeps every SMS in cheap English parts.
+            </span>
+          </span>
+        </label>
 
         <label className="block">
           <Label hint="where the tracking link sends people">Link destination</Label>
@@ -105,12 +120,20 @@ export function CampaignForm({
 
         <Card className="space-y-2 p-5 text-sm">
           <Row k="Recipients" v={nf.format(audienceSize)} />
-          <Row k="SMS parts each" v={String(parts)} />
-          <Row k={`Rate`} v={`৳${rate} / part`} />
+          {est.byParts.map(([p, people]) => (
+            <Row key={p} k={`${p} part${p > 1 ? "s" : ""} (৳${(p * rate).toFixed(2)} each)`} v={`${nf.format(people)} people`} />
+          ))}
+          <Row k="Total SMS parts" v={nf.format(est.totalParts)} />
+          <Row k="Rate" v={`৳${rate} / part`} />
           <div className="border-t border-line pt-2">
             <Row k="Estimated cost" v={`৳${nf.format(Math.round(cost * 100) / 100)}`} strong />
           </div>
           <Row k="Your balance" v={balance == null ? "unavailable" : `৳${balance.toFixed(2)}`} warn={notEnough} />
+          {est.unicodePeople > 0 && (
+            <p className="text-xs text-warning">
+              {nf.format(est.unicodePeople)} message{est.unicodePeople > 1 ? "s" : ""} use Bangla/emoji (70 chars per part){cleanNames ? " — from the message text itself" : " — tick “Remove Bangla & emoji from names” to make them cheaper"}.
+            </p>
+          )}
           {notEnough && <p className="text-xs text-warning">Balance is lower than the cost. Sending will pause automatically when it runs out — recharge BulkSMSBD first.</p>}
         </Card>
 

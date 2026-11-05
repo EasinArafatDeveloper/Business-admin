@@ -1,0 +1,1 @@
+ALTER TABLE "campaign_recipients" ADD COLUMN "parts" integer DEFAULT 1 NOT NULL;

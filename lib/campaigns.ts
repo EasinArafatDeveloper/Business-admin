@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { type LeadFilters, whereFor } from "@/lib/leads-query";
-import { normalizeBdMobile, renderTemplate } from "@/lib/sms-text";
+import { normalizeBdMobile, renderTemplate, smsParts } from "@/lib/sms-text";
 import { FATAL_CODES, sendSms } from "@/lib/sms";
 import { linkBase, newCode } from "@/lib/tracking";
 
@@ -51,6 +51,8 @@ export async function createCampaignWithRecipients(input: {
   audienceQuery: string;
   ratePerMinute: number;
   filters: LeadFilters;
+  /** Drop Bangla/emoji from names so messages stay in cheap English parts. */
+  cleanNames: boolean;
 }) {
   const { audience } = await buildAudience(input.workspaceId, input.filters);
   if (audience.length === 0) throw new Error("No leads with a valid Bangladeshi mobile number match these filters.");
@@ -76,13 +78,15 @@ export async function createCampaignWithRecipients(input: {
     for (let attempt = 0; pending.length > 0 && attempt < 5; attempt++) {
       const rows = pending.map((a) => {
         const code = newCode();
+        const message = renderTemplate(input.message, { name: a.name, service: a.service, link: `${base}/${code}` }, { cleanNames: input.cleanNames });
         return {
           workspaceId: input.workspaceId,
           campaignId: campaign.id,
           leadId: a.leadId,
           phone: a.phone,
           trackingCode: code,
-          message: renderTemplate(input.message, { name: a.name, service: a.service, link: `${base}/${code}` })
+          message,
+          parts: smsParts(message).parts
         };
       });
       const inserted = await db.insert(R).values(rows).onConflictDoNothing({ target: R.trackingCode }).returning({ leadId: R.leadId });

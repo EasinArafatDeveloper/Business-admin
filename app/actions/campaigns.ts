@@ -20,7 +20,8 @@ const createSchema = z.object({
   message: z.string().trim().min(10, "Message is too short").max(1000).refine((m) => /\{link\}/i.test(m), "The message must contain {link}"),
   destinationUrl: z.string().trim().refine((u) => Boolean(safeUrl(u)), "Enter a full link starting with https://"),
   ratePerMinute: z.coerce.number().int().min(5).max(300),
-  audienceQuery: z.string().max(2000).default("")
+  audienceQuery: z.string().max(2000).default(""),
+  cleanNames: z.string().optional()
 });
 
 export async function createCampaign(_: ActionState, formData: FormData): Promise<ActionState> {
@@ -41,7 +42,8 @@ export async function createCampaign(_: ActionState, formData: FormData): Promis
       destinationUrl: safeUrl(d.destinationUrl)!,
       audienceQuery: d.audienceQuery,
       ratePerMinute: d.ratePerMinute,
-      filters
+      filters,
+      cleanNames: d.cleanNames === "on"
     });
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Could not create the campaign" };

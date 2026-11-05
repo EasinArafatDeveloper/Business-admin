@@ -43,7 +43,8 @@ async function main() {
     destinationUrl: "https://scaleupweb.xyz/free-audit",
     audienceQuery: "",
     ratePerMinute: 30,
-    filters: parseFilters({})
+    filters: parseFilters({}),
+    cleanNames: true
   });
 
   const recs = await db.select().from(schema.campaignRecipients).where(eq(schema.campaignRecipients.campaignId, id));
@@ -80,6 +81,31 @@ async function main() {
   check(`counts: 1 real click, 1 person, 1 bot hit (got ${c.humanClicks}/${c.uniqueClickers}/${c.botClicks})`, c.humanClicks === 1 && c.uniqueClickers === 1 && c.botClicks === 1);
   check("recipient marked clicked", rec.clickCount === 1 && Boolean(rec.firstClickedAt));
   check(`lead moved new → interested (got ${lead.status}), smsClicks=${lead.smsClicks}`, lead.status === "interested" && lead.smsClicks === 1);
+
+  // ---- name cleaning + exact cost estimate
+  const { cleanName, groupAudience, estimateParts, renderTemplate, smsParts } = await import("../lib/sms-text");
+  check("cleanName drops emoji", cleanName("Smart Shop 🛍️") === "Smart Shop");
+  check("cleanName keeps the English part", cleanName("রাব্বানী Rabbani") === "Rabbani");
+  check("cleanName: fully Bangla → null (Sir/Madam)", cleanName("রাব্বানী দাওয়া") === null);
+  const people = [
+    { name: "Sign of Modesty", service: "AI Chatbot (Messenger)" },
+    { name: "Smart Shop 🛍️", service: "E-commerce Website" },
+    { name: "রাব্বানী দাওয়া সেন্টার বাংলাদেশ", service: "Business Website" },
+    { name: "Hijama Planet: Cupping & Ruqyah Center — Dhaka branch with a very long page name", service: null },
+    { name: null, service: null }
+  ];
+  const link = "https://admin.scaleupweb.xyz/go/abc234";
+  for (const tpl of [
+    "Assalamu Alaikum {name}! Apnar business er jonno ekta fast website + auto order system banale order 24/7 ashbe. Free audit nite: {link} - ScaleUp Web",
+    "Hi {name}, {service} ready? {link}",
+    "আসসালামু আলাইকুম {name}! {link}"
+  ]) {
+    for (const cleanNames of [false, true]) {
+      const real = people.reduce((n, p) => n + smsParts(renderTemplate(tpl, { ...p, link }, { cleanNames })).parts, 0);
+      const est = estimateParts(tpl, groupAudience(people), link.length, { cleanNames }).totalParts;
+      check(`estimate = real parts (${real}) for "${tpl.slice(0, 22)}…" cleanNames=${cleanNames}`, est === real);
+    }
+  }
 
   console.log(failures ? `\n${failures} FAILED` : "\nALL PASSED");
   process.exit(failures ? 1 : 0);

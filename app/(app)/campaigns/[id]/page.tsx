@@ -1,10 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { and, desc, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { ArrowLeft, TriangleAlert } from "lucide-react";
 import { db, schema } from "@/db";
 import { requireUser } from "@/lib/auth";
-import { smsParts } from "@/lib/sms-text";
 import { smsRate } from "@/lib/sms";
 import { cn, nf, timeAgo } from "@/lib/utils";
 import { Card } from "@/components/ui";
@@ -34,7 +33,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
 
   const where =
     tab === "clicked" ? and(eq(R.campaignId, id), gt(R.clickCount, 0)) : tab === "failed" ? and(eq(R.campaignId, id), eq(R.status, "failed")) : eq(R.campaignId, id);
-  const [recipients, [sample]] = await Promise.all([
+  const [recipients, [sample], [totals]] = await Promise.all([
     db
       .select({
         id: R.id,
@@ -53,11 +52,14 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
       .where(where)
       .orderBy(tab === "clicked" ? desc(R.clickCount) : R.id)
       .limit(200),
-    db.select({ message: R.message }).from(R).where(eq(R.campaignId, id)).limit(1)
+    db.select({ message: R.message }).from(R).where(eq(R.campaignId, id)).limit(1),
+    db
+      .select({ parts: sql<number>`coalesce(sum(${R.parts}), 0)::int`, multi: sql<number>`count(*) filter (where ${R.parts} > 1)::int` })
+      .from(R)
+      .where(eq(R.campaignId, id))
   ]);
 
-  const parts = sample ? smsParts(sample.message).parts : 1;
-  const cost = `৳${nf.format(Math.round(c.totalRecipients * parts * smsRate() * 100) / 100)}`;
+  const cost = `৳${nf.format(Math.round(totals.parts * smsRate() * 100) / 100)}`;
   const progress = c.totalRecipients ? ((c.sentCount + c.failedCount) / c.totalRecipients) * 100 : 0;
   const ctr = c.sentCount ? (c.uniqueClickers / c.sentCount) * 100 : 0;
 
@@ -83,7 +85,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
             <CampaignStatus status={c.status} />
           </div>
           <p className="mt-1 text-sm text-muted">
-            {c.ratePerMinute} SMS/min · {parts} part{parts > 1 ? "s" : ""} each · est. {cost} · created {timeAgo(c.createdAt)}
+            {c.ratePerMinute} SMS/min · {nf.format(totals.parts)} SMS parts in total ({nf.format(totals.multi)} people need 2+) · cost {cost} · created {timeAgo(c.createdAt)}
           </p>
         </div>
         <CampaignControls id={c.id} status={c.status} total={c.totalRecipients} cost={cost} />

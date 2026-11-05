@@ -15,6 +15,13 @@
       "when": 1793860153815,
       "tag": "0001_ambitious_peter_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793869501672,
+      "tag": "0002_orange_magdalene",
+      "breakpoints": true
     }
   ]
 }

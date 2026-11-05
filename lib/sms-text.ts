@@ -9,30 +9,127 @@ export function normalizeBdMobile(raw: string | null | undefined): string | null
   return /^8801[3-9]\d{8}$/.test(d) ? d : null;
 }
 
+/*
+ * SMS "parts": phones split long messages into pieces and the provider charges per piece.
+ * Plain English (GSM-7 alphabet): 160 chars in one piece, 153 per piece when longer.
+ * One Bangla letter or emoji switches the WHOLE message to Unicode: 70 / 67 per piece.
+ */
 const GSM =
   "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";
-const GSM_EXT = "^{}\\[~]|€";
+const GSM_EXT = "^{}\\[~]|€"; // allowed, but count as 2
 
-/** How many SMS parts a message costs: 160/153 chars (English) or 70/67 (Bangla / emoji). */
+const isGsm = (c: string) => GSM.includes(c) || GSM_EXT.includes(c);
+export const isGsmText = (s: string) => [...s].every(isGsm);
+
+/** Length as the network counts it: GSM weight (ext = 2) or Unicode code points. */
+export function smsLength(s: string): { len: number; unicode: boolean } {
+  const unicode = !isGsmText(s);
+  return { len: unicode ? [...s].length : [...s].reduce((n, c) => n + (GSM_EXT.includes(c) ? 2 : 1), 0), unicode };
+}
+
+export function partsFor(len: number, unicode: boolean) {
+  if (unicode) return len <= 70 ? 1 : Math.ceil(len / 67);
+  return len <= 160 ? 1 : Math.ceil(len / 153);
+}
+
 export function smsParts(text: string): { parts: number; chars: number; unicode: boolean } {
-  const unicode = [...text].some((c) => !GSM.includes(c) && !GSM_EXT.includes(c));
-  if (unicode) {
-    const chars = [...text].length;
-    return { parts: chars <= 70 ? 1 : Math.ceil(chars / 67), chars, unicode };
-  }
-  const chars = [...text].reduce((n, c) => n + (GSM_EXT.includes(c) ? 2 : 1), 0);
-  return { parts: chars <= 160 ? 1 : Math.ceil(chars / 153), chars, unicode };
+  const { len, unicode } = smsLength(text);
+  return { parts: partsFor(len, unicode), chars: len, unicode };
+}
+
+const NAME_FALLBACK = "Sir/Madam";
+const SERVICE_FALLBACK = "website";
+
+/**
+ * Keeps only plain-English characters of a business name so it doesn't turn the SMS into
+ * a 70-char Unicode message: "Smart Shop 🛍️" → "Smart Shop", "রাব্বানী Rabbani" → "Rabbani".
+ * Returns null when too little is left (e.g. a fully Bangla name).
+ */
+export function cleanName(raw: string | null | undefined): string | null {
+  const kept = [...(raw ?? "")]
+    .filter((c) => isGsm(c) && c !== "\n" && c !== "\r")
+    .join("")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s\-–|:,.·]+|[\s\-–|:,.·]+$/g, "")
+    .trim();
+  return (kept.match(/[A-Za-z]/g)?.length ?? 0) >= 2 ? kept : null;
 }
 
 export type TemplateVars = { name?: string | null; service?: string | null; link: string };
+export type RenderOptions = { cleanNames?: boolean };
 
-/** Fills {name} {service} {link}. Unknown / empty values become sensible defaults. */
-export function renderTemplate(template: string, v: TemplateVars) {
-  return template
-    .replace(/\{name\}/gi, (v.name ?? "").trim() || "Sir/Madam")
-    .replace(/\{service\}/gi, (v.service ?? "").trim() || "website")
-    .replace(/\{link\}/gi, v.link);
+/** Fills {name} {service} {link}. With cleanNames, Bangla/emoji in names are dropped (see cleanName). */
+export function renderTemplate(template: string, v: TemplateVars, opts: RenderOptions = {}) {
+  const name = opts.cleanNames ? cleanName(v.name) ?? NAME_FALLBACK : (v.name ?? "").trim() || NAME_FALLBACK;
+  const service = opts.cleanNames ? cleanName(v.service) ?? SERVICE_FALLBACK : (v.service ?? "").trim() || SERVICE_FALLBACK;
+  return template.replace(/\{name\}/gi, name).replace(/\{service\}/gi, service).replace(/\{link\}/gi, v.link);
 }
 
 /** Length a tracking link adds to the SMS (base + "/" + 6-char code). */
 export const sampleLink = (base: string) => `${base.replace(/\/$/, "")}/abc234`;
+
+/* ------------------------------------------------------------------ exact cost */
+
+/**
+ * The audience reduced to "shapes": people whose name/service have the same SMS length and
+ * alphabet cost the same, so 50,000 people become a few hundred groups the browser can price.
+ */
+export type AudienceGroup = {
+  n: number;
+  nameLen: number;
+  nameUni: boolean;
+  cleanNameLen: number; // length after cleanName (or of the fallback)
+  svcLen: number;
+  svcUni: boolean;
+  cleanSvcLen: number;
+};
+
+export function groupAudience(people: { name: string | null; service: string | null }[]): AudienceGroup[] {
+  const map = new Map<string, AudienceGroup>();
+  for (const p of people) {
+    const name = (p.name ?? "").trim() || NAME_FALLBACK;
+    const svc = (p.service ?? "").trim() || SERVICE_FALLBACK;
+    const n = smsLength(name);
+    const s = smsLength(svc);
+    const g: AudienceGroup = {
+      n: 1,
+      nameLen: n.len,
+      nameUni: n.unicode,
+      cleanNameLen: (cleanName(p.name) ?? NAME_FALLBACK).length,
+      svcLen: s.len,
+      svcUni: s.unicode,
+      cleanSvcLen: (cleanName(p.service) ?? SERVICE_FALLBACK).length
+    };
+    const key = `${g.nameLen}|${+g.nameUni}|${g.cleanNameLen}|${g.svcLen}|${+g.svcUni}|${g.cleanSvcLen}`;
+    const hit = map.get(key);
+    if (hit) hit.n++;
+    else map.set(key, g);
+  }
+  return [...map.values()];
+}
+
+/** Exact total parts for a template over the grouped audience. */
+export function estimateParts(template: string, groups: AudienceGroup[], linkLen: number, opts: RenderOptions = {}) {
+  const fixed = template.replace(/\{name\}/gi, "").replace(/\{service\}/gi, "").replace(/\{link\}/gi, "");
+  const fixedLen = smsLength(fixed);
+  const nName = (template.match(/\{name\}/gi) ?? []).length;
+  const nSvc = (template.match(/\{service\}/gi) ?? []).length;
+  const nLink = (template.match(/\{link\}/gi) ?? []).length;
+
+  let totalParts = 0;
+  const byParts = new Map<number, number>(); // parts → people
+  let unicodePeople = 0;
+  for (const g of groups) {
+    const nameLen = opts.cleanNames ? g.cleanNameLen : g.nameLen;
+    const svcLen = opts.cleanNames ? g.cleanSvcLen : g.svcLen;
+    const unicode = fixedLen.unicode || (!opts.cleanNames && ((nName > 0 && g.nameUni) || (nSvc > 0 && g.svcUni)));
+    // In Unicode every character counts 1, so re-measure the fixed text as code points.
+    const fixedChars = unicode ? [...fixed].length : fixedLen.len;
+    const len = fixedChars + nName * nameLen + nSvc * svcLen + nLink * linkLen;
+    const parts = partsFor(len, unicode);
+    totalParts += parts * g.n;
+    byParts.set(parts, (byParts.get(parts) ?? 0) + g.n);
+    if (unicode) unicodePeople += g.n;
+  }
+  return { totalParts, byParts: [...byParts.entries()].sort((a, b) => a[0] - b[0]), unicodePeople };
+}

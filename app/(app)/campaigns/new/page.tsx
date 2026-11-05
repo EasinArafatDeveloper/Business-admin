@@ -6,6 +6,7 @@ import { filtersToQuery, parseFilters } from "@/lib/leads-query";
 import { getBalance, smsRate } from "@/lib/sms";
 import { linkBase } from "@/lib/tracking";
 import { nf } from "@/lib/utils";
+import { groupAudience } from "@/lib/sms-text";
 import { Card } from "@/components/ui";
 import { CampaignForm } from "@/components/campaigns/campaign-form";
 
@@ -52,6 +53,7 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
       <CampaignForm
         audienceQuery={query}
         audienceSize={audience.length}
+        groups={groupAudience(audience)}
         sample={{ name: sample?.name ?? "Sign of Modesty", service: sample?.service ?? "E-commerce Website" }}
         linkBase={linkBase()}
         rate={smsRate()}
