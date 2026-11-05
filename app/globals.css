@@ -89,3 +89,21 @@
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;
 }
+
+/* Invoices: "Download PDF" uses the browser's print → one clean A4 page. */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  :root {
+    color-scheme: light;
+  }
+  body {
+    background: #fff !important;
+  }
+  .invoice-paper {
+    font-size: 11.5px;
+    break-inside: avoid;
+  }
+}

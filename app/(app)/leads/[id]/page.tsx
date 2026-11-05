@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth";
 import { digitsOnly, nf, timeAgo } from "@/lib/utils";
 import { Card, PriorityText } from "@/components/ui";
 import { CopyButton, NoteForm, SmsOptOutToggle, StatusPicker } from "@/components/leads/lead-controls";
+import { ConvertLeadButton } from "@/components/billing/forms";
 
 export async function generateMetadata({ params }: PageProps<"/leads/[id]">) {
   const { id } = await params;
@@ -35,10 +36,21 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
     .orderBy(desc(A.createdAt))
     .limit(100);
 
+  const [client] = await db
+    .select({ id: schema.clients.id })
+    .from(schema.clients)
+    .where(and(eq(schema.clients.workspaceId, user.workspaceId), eq(schema.clients.leadId, lead.id)))
+    .limit(1);
   const wa = digitsOnly(lead.whatsapp || lead.phone);
   const waText = lead.pitch ? `Assalamu Alaikum! ${lead.pitch}` : "Assalamu Alaikum!";
   const actions = [
-    wa && { href: `https://wa.me/${wa}?text=${encodeURIComponent(waText)}`, label: "WhatsApp", sub: lead.whatsapp || lead.phone, icon: MessageCircle, tone: "text-success" },
+    wa && {
+      href: `https://wa.me/${wa}?text=${encodeURIComponent(waText)}`,
+      label: "WhatsApp",
+      sub: lead.whatsapp || lead.phone,
+      icon: MessageCircle,
+      tone: "text-success"
+    },
     lead.phone && { href: `tel:${lead.phone}`, label: "Call", sub: lead.phone, icon: Phone, tone: "text-accent-soft" },
     lead.email && { href: `mailto:${lead.email.split(",")[0].trim()}`, label: "Email", sub: lead.email, icon: Mail, tone: "text-warning" },
     lead.pageLink && { href: lead.pageLink, label: "Facebook page", sub: "Open page", icon: PanelsTopLeft, tone: "text-accent-soft" },
@@ -88,7 +100,10 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <StatusPicker leadId={lead.id} status={lead.status} />
+          <div className="flex items-center gap-2">
+            <ConvertLeadButton leadId={lead.id} existingClientId={client?.id} />
+            <StatusPicker leadId={lead.id} status={lead.status} />
+          </div>
           <div className="flex gap-1.5">
             <SmsOptOutToggle leadId={lead.id} optOut={lead.smsOptOut} />
             <SmsOptOutToggle leadId={lead.id} optOut={lead.waOptOut} channel="whatsapp" />
@@ -100,7 +115,13 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
       {actions.length > 0 && (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           {actions.map((a) => (
-            <a key={a.label} href={a.href} target="_blank" rel="noopener noreferrer" className="group rounded-2xl border border-line bg-surface p-3.5 hover:border-line-strong">
+            <a
+              key={a.label}
+              href={a.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group rounded-2xl border border-line bg-surface p-3.5 hover:border-line-strong"
+            >
               <div className="flex items-center justify-between">
                 <a.icon className={`h-4 w-4 ${a.tone}`} />
                 <ExternalLink className="h-3.5 w-3.5 text-muted-2 group-hover:text-fg" />
@@ -164,7 +185,17 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
                 <li key={a.id} className="relative">
                   <span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-accent" />
                   <div className="text-[11px] text-muted-2">
-                    {a.type === "note" ? "Note" : a.type === "status" ? "Status" : a.type === "form" ? "Website form" : a.type === "click" ? "Link click" : a.type === "wa_reply" ? "WhatsApp reply" : a.type}
+                    {a.type === "note"
+                      ? "Note"
+                      : a.type === "status"
+                        ? "Status"
+                        : a.type === "form"
+                          ? "Website form"
+                          : a.type === "click"
+                            ? "Link click"
+                            : a.type === "wa_reply"
+                              ? "WhatsApp reply"
+                              : a.type}
                     {a.user ? ` · ${a.user}` : ""} · {timeAgo(a.createdAt)}
                   </div>
                   <p className="whitespace-pre-wrap text-sm">{a.body}</p>

@@ -27,10 +27,10 @@ const groups: { title?: string; items: Item[] }[] = [
     ]
   },
   {
-    title: "Coming next",
+    title: "Billing",
     items: [
-      { href: "#clients", label: "Clients", icon: Briefcase, soon: true },
-      { href: "#invoices", label: "Invoices", icon: FileText, soon: true }
+      { href: "/clients", label: "Clients", icon: Briefcase },
+      { href: "/invoices", label: "Invoices", icon: FileText }
     ]
   },
   { items: [{ href: "/settings", label: "Settings", icon: Settings }] }
@@ -75,7 +75,7 @@ export function Sidebar({ userName, workspace, badges = {} }: { userName: string
   return (
     <>
       {/* Desktop */}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-line bg-ink-alt px-3 py-5 lg:flex">
+      <aside className="sticky top-0 hidden h-screen w-60 print:!hidden shrink-0 flex-col border-r border-line bg-ink-alt px-3 py-5 lg:flex">
         <Link href="/" className="mb-6 flex items-center gap-2.5 px-2">
           <span className="flex h-7 w-7 items-center justify-center rounded-[8px] bg-accent">
             <span className="h-2 w-2 rounded-full bg-white" />
@@ -109,7 +109,7 @@ export function Sidebar({ userName, workspace, badges = {} }: { userName: string
       </aside>
 
       {/* Mobile */}
-      <header className="sticky top-0 z-30 border-b border-line bg-ink-alt/95 backdrop-blur lg:hidden">
+      <header className="sticky top-0 z-30 border-b border-line bg-ink-alt/95 backdrop-blur print:hidden lg:hidden">
         <div className="scroll-thin flex items-center gap-1 overflow-x-auto px-3 py-2">
           {groups
             .flatMap((g) => g.items)

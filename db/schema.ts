@@ -1,5 +1,6 @@
 import {
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -22,8 +23,31 @@ export const workspaces = pgTable("workspaces", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
+  /** Business details printed on invoices (address, phone, payment instructions…). */
+  billing: jsonb("billing").$type<BillingProfile>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
 });
+
+export type BillingProfile = {
+  legalName?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  website?: string;
+  /** e.g. "bKash (personal): 01XXXXXXXXX
+Bank: …" */
+  paymentInfo?: string;
+  /** Shown on the public invoice so clients can pay by themselves. */
+  bkashNumber?: string;
+  bkashType?: "personal" | "merchant" | "agent";
+  nagadNumber?: string;
+  bankDetails?: string;
+  /** Discount for sharing a post about you (0 = off). */
+  shareDiscountPercent?: number;
+  invoicePrefix?: string;
+  defaultTerms?: string;
+  dueDays?: number;
+};
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -313,3 +337,146 @@ export const inboundMessages = pgTable(
     uniqueIndex("inbound_messages_external_idx").on(t.workspaceId, t.externalId)
   ]
 );
+
+/* ---------------------------------------------------------------- clients & billing */
+
+/** A business you work for. Can come from a lead (leadId) or be added by hand. */
+export const clients = pgTable(
+  "clients",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    contactName: text("contact_name"),
+    phone: text("phone"),
+    email: text("email"),
+    address: text("address"),
+    website: text("website"),
+    notes: text("notes"),
+    /** active | paused | past */
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("clients_ws_idx").on(t.workspaceId, t.name), uniqueIndex("clients_lead_idx").on(t.workspaceId, t.leadId)]
+);
+
+/**
+ * Amounts are stored in poisha (৳1 = 100) so totals never round wrongly.
+ * status: draft | sent | paid | void  (partly paid / overdue are worked out from amounts and the due date)
+ */
+export const invoices = pgTable(
+  "invoices",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    clientId: integer("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "restrict" }),
+    number: text("number").notNull(),
+    status: text("status").notNull().default("draft"),
+    issueDate: timestamp("issue_date", { withTimezone: true }).notNull().defaultNow(),
+    dueDate: timestamp("due_date", { withTimezone: true }),
+    currency: text("currency").notNull().default("BDT"),
+    subtotal: integer("subtotal").notNull().default(0),
+    discount: integer("discount").notNull().default(0),
+    total: integer("total").notNull().default(0),
+    amountPaid: integer("amount_paid").notNull().default(0),
+    notes: text("notes"),
+    terms: text("terms"),
+    /** Secret for the public invoice link (/i/<token>). */
+    publicToken: text("public_token").notNull().unique(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    viewedAt: timestamp("viewed_at", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [uniqueIndex("invoices_number_idx").on(t.workspaceId, t.number), index("invoices_client_idx").on(t.clientId)]
+);
+
+export const invoiceItems = pgTable(
+  "invoice_items",
+  {
+    id: serial("id").primaryKey(),
+    invoiceId: integer("invoice_id")
+      .notNull()
+      .references(() => invoices.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    description: text("description").notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    unitPrice: integer("unit_price").notNull().default(0),
+    amount: integer("amount").notNull().default(0)
+  },
+  (t) => [index("invoice_items_invoice_idx").on(t.invoiceId, t.position)]
+);
+
+export const payments = pgTable(
+  "payments",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    invoiceId: integer("invoice_id")
+      .notNull()
+      .references(() => invoices.id, { onDelete: "cascade" }),
+    amount: integer("amount").notNull(),
+    /** bkash | nagad | rocket | bank | cash | card | other */
+    method: text("method").notNull(),
+    reference: text("reference"),
+    note: text("note"),
+    paidAt: timestamp("paid_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("payments_invoice_idx").on(t.invoiceId)]
+);
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
+
+/**
+ * What a client sends from the public invoice page: a payment (TrxID + screenshot) or a share
+ * (link to their post, for the share discount). Nothing counts until you approve it in the admin.
+ */
+export const invoiceSubmissions = pgTable(
+  "invoice_submissions",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    invoiceId: integer("invoice_id")
+      .notNull()
+      .references(() => invoices.id, { onDelete: "cascade" }),
+    /** payment | share */
+    kind: text("kind").notNull(),
+    method: text("method"),
+    amount: integer("amount"),
+    reference: text("reference"),
+    shareUrl: text("share_url"),
+    screenshot: bytea("screenshot"),
+    screenshotType: text("screenshot_type"),
+    payerEmail: text("payer_email"),
+    payerPhone: text("payer_phone"),
+    /** pending | approved | rejected */
+    status: text("status").notNull().default("pending"),
+    paymentId: integer("payment_id").references(() => payments.id, { onDelete: "set null" }),
+    ipHash: text("ip_hash"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true })
+  },
+  (t) => [index("invoice_submissions_invoice_idx").on(t.invoiceId, t.createdAt), index("invoice_submissions_pending_idx").on(t.workspaceId, t.status)]
+);
+
+export type Client = typeof clients.$inferSelect;
+export type InvoiceSubmission = typeof invoiceSubmissions.$inferSelect;
+export type Invoice = typeof invoices.$inferSelect;
+export type InvoiceItem = typeof invoiceItems.$inferSelect;
+export type Payment = typeof payments.$inferSelect;

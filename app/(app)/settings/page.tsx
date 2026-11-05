@@ -1,15 +1,18 @@
 import Link from "next/link";
-import { KeyRound, MonitorSmartphone, UserRound, type LucideIcon } from "lucide-react";
+import { Building2, KeyRound, MonitorSmartphone, UserRound, type LucideIcon } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { signOutEverywhere } from "@/app/actions/auth";
 import { cn } from "@/lib/utils";
 import { Button, Card } from "@/components/ui";
 import { ChangePasswordForm } from "@/components/settings-forms";
+import { BillingForm } from "@/components/billing/forms";
+import { getBilling } from "@/lib/billing";
 
 export const metadata = { title: "Settings" };
 
 const TABS: { key: string; label: string; desc: string; icon: LucideIcon }[] = [
   { key: "account", label: "Account", desc: "Your name and email", icon: UserRound },
+  { key: "business", label: "Business & invoices", desc: "Invoice details, bKash", icon: Building2 },
   { key: "password", label: "Password", desc: "Change your password", icon: KeyRound },
   { key: "devices", label: "Devices", desc: "Sign out everywhere", icon: MonitorSmartphone }
 ];
@@ -18,6 +21,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   const user = await requireUser();
   const sp = await searchParams;
   const tab = TABS.find((t) => t.key === sp.tab) ?? TABS[0];
+  const billing = await getBilling(user.workspaceId);
   const initials = user.name
     .split(" ")
     .map((w) => w[0])
@@ -33,7 +37,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
-        <nav className="grid grid-cols-3 gap-2 lg:sticky lg:top-6 lg:flex lg:h-fit lg:flex-col" aria-label="Settings">
+        <nav className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:sticky lg:top-6 lg:flex lg:h-fit lg:flex-col" aria-label="Settings">
           {TABS.map((t) => {
             const active = t.key === tab.key;
             return (
@@ -47,7 +51,10 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
                 )}
               >
                 <span
-                  className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-lg", active ? "bg-accent/15 text-accent-soft" : "bg-surface-2 text-muted")}
+                  className={cn(
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+                    active ? "bg-accent/15 text-accent-soft" : "bg-surface-2 text-muted"
+                  )}
                 >
                   <t.icon className="h-4 w-4" />
                 </span>
@@ -82,6 +89,13 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
                   v={user.lastLoginAt ? user.lastLoginAt.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Dhaka" }) : "—"}
                 />
               </dl>
+            </Card>
+          )}
+
+          {tab.key === "business" && (
+            <Card className="p-5">
+              <p className="mb-4 text-sm text-muted">Printed on every invoice and shown on the payment link you send clients.</p>
+              <BillingForm initial={billing.billing} workspaceName={billing.name} />
             </Card>
           )}
 
