@@ -66,3 +66,23 @@ export async function addLeadNote(leadId: number, formData: FormData) {
   await db.update(L).set({ updatedAt: new Date() }).where(eq(L.id, leadId));
   revalidatePath(`/leads/${leadId}`);
 }
+
+/** "Don't SMS me" — excluded from every future campaign. */
+export async function setSmsOptOut(leadId: number, optOut: boolean) {
+  const user = await requireUser();
+  const changed = await db
+    .update(L)
+    .set({ smsOptOut: optOut, updatedAt: new Date() })
+    .where(and(eq(L.id, leadId), eq(L.workspaceId, user.workspaceId)))
+    .returning({ id: L.id });
+  if (changed.length) {
+    await db.insert(schema.leadActivities).values({
+      workspaceId: user.workspaceId,
+      leadId,
+      userId: user.id,
+      type: "status",
+      body: optOut ? "Opted out of SMS" : "SMS allowed again"
+    });
+  }
+  revalidatePath(`/leads/${leadId}`);
+}

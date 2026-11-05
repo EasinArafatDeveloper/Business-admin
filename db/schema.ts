@@ -86,6 +86,13 @@ export const leads = pgTable(
     inBangladesh: boolean("in_bangladesh"),
 
     status: leadStatus("status").notNull().default("new"),
+
+    /** SMS engagement — only verified human clicks count (see lib/tracking.ts). */
+    smsOptOut: boolean("sms_opt_out").notNull().default(false),
+    smsClicks: integer("sms_clicks").notNull().default(0),
+    smsCampaignsClicked: integer("sms_campaigns_clicked").notNull().default(0),
+    lastClickedAt: timestamp("last_clicked_at", { withTimezone: true }),
+
     /** Extra data that has no column (e.g. website form answers). */
     details: jsonb("details").$type<Record<string, string>>(),
     lastContactedAt: timestamp("last_contacted_at", { withTimezone: true }),
@@ -145,3 +152,88 @@ export const imports = pgTable("imports", {
 export type Lead = typeof leads.$inferSelect;
 export type NewLead = typeof leads.$inferInsert;
 export type User = typeof users.$inferSelect;
+
+/* ------------------------------------------------------------------ SMS campaigns */
+
+/** draft → sending ⇄ paused → done | cancelled */
+export const campaigns = pgTable("campaigns", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  /** Template with {name} {service} {link}. */
+  message: text("message").notNull(),
+  destinationUrl: text("destination_url").notNull(),
+  /** The /leads filter query the audience was built from (for reference). */
+  audienceQuery: text("audience_query"),
+  status: text("status").notNull().default("draft"),
+  ratePerMinute: integer("rate_per_minute").notNull().default(30),
+  totalRecipients: integer("total_recipients").notNull().default(0),
+  sentCount: integer("sent_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  humanClicks: integer("human_clicks").notNull().default(0),
+  uniqueClickers: integer("unique_clickers").notNull().default(0),
+  botClicks: integer("bot_clicks").notNull().default(0),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true })
+});
+
+/** One row per person in a campaign, with their own tracking code. */
+export const campaignRecipients = pgTable(
+  "campaign_recipients",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id").notNull(),
+    campaignId: integer("campaign_id")
+      .notNull()
+      .references(() => campaigns.id, { onDelete: "cascade" }),
+    leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    phone: text("phone").notNull(),
+    message: text("message").notNull(),
+    trackingCode: text("tracking_code").notNull().unique(),
+    /** queued | sending | sent | failed */
+    status: text("status").notNull().default("queued"),
+    providerCode: text("provider_code"),
+    error: text("error"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    clickCount: integer("click_count").notNull().default(0),
+    botClickCount: integer("bot_click_count").notNull().default(0),
+    firstClickedAt: timestamp("first_clicked_at", { withTimezone: true }),
+    lastClickedAt: timestamp("last_clicked_at", { withTimezone: true })
+  },
+  (t) => [
+    index("campaign_recipients_queue_idx").on(t.campaignId, t.status),
+    index("campaign_recipients_lead_idx").on(t.leadId)
+  ]
+);
+
+/** Every hit on a tracking link: bots are logged but never counted as clicks. */
+export const clickEvents = pgTable(
+  "click_events",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id").notNull(),
+    campaignId: integer("campaign_id").notNull(),
+    recipientId: integer("recipient_id")
+      .notNull()
+      .references(() => campaignRecipients.id, { onDelete: "cascade" }),
+    isBot: boolean("is_bot").notNull(),
+    reason: text("reason").notNull(),
+    /** One-time token the human-check page sends back; null for bots. */
+    verifyToken: text("verify_token"),
+    verified: boolean("verified").notNull().default(false),
+    ipHash: text("ip_hash"),
+    userAgent: text("user_agent"),
+    clientMeta: jsonb("client_meta").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true })
+  },
+  (t) => [index("click_events_token_idx").on(t.verifyToken), index("click_events_recipient_idx").on(t.recipientId, t.createdAt)]
+);
+
+export type Campaign = typeof campaigns.$inferSelect;
+export type CampaignRecipient = typeof campaignRecipients.$inferSelect;

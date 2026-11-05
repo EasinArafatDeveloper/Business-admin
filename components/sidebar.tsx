@@ -23,13 +23,13 @@ const groups: { title?: string; items: Item[] }[] = [
     items: [
       { href: "/", label: "Dashboard", icon: LayoutDashboard },
       { href: "/leads", label: "Leads", icon: Users },
-      { href: "/leads/import", label: "Import", icon: FileSpreadsheet }
+      { href: "/leads/import", label: "Import", icon: FileSpreadsheet },
+      { href: "/campaigns", label: "SMS campaigns", icon: Megaphone }
     ]
   },
   {
     title: "Coming next",
     items: [
-      { href: "#campaigns", label: "Campaigns", icon: Megaphone, soon: true },
       { href: "#clients", label: "Clients", icon: Briefcase, soon: true },
       { href: "#invoices", label: "Invoices", icon: FileText, soon: true }
     ]

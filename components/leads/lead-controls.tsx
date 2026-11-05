@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { Check, Copy } from "lucide-react";
 import { LEAD_STATUSES, type LeadStatus } from "@/lib/constants";
-import { addLeadNote, setLeadStatus } from "@/app/actions/leads";
+import { addLeadNote, setLeadStatus, setSmsOptOut } from "@/app/actions/leads";
 import { Button, STATUS_STYLES } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
@@ -74,5 +74,21 @@ export function NoteForm({ leadId }: { leadId: number }) {
         {pending ? "Saving…" : "Add note"}
       </Button>
     </form>
+  );
+}
+
+export function SmsOptOutToggle({ leadId, optOut }: { leadId: number; optOut: boolean }) {
+  const [pending, startTransition] = useTransition();
+  return (
+    <button
+      disabled={pending}
+      onClick={() => startTransition(() => setSmsOptOut(leadId, !optOut))}
+      className={cn(
+        "rounded-full border px-3 py-1 text-xs transition-colors disabled:opacity-50",
+        optOut ? "border-danger/40 bg-danger/10 text-danger" : "border-line-strong text-muted hover:text-fg"
+      )}
+    >
+      {optOut ? "Don't SMS — on" : "Don't SMS"}
+    </button>
   );
 }

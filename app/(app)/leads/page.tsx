@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, FileSpreadsheet } from "lucide-react";
+import { ChevronLeft, ChevronRight, FileSpreadsheet, Megaphone } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { PAGE_SIZE, filterOptions, filtersToQuery, findLeads, parseFilters } from "@/lib/leads-query";
 import { FilterBar } from "@/components/leads/filter-bar";
@@ -23,9 +23,18 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
           <h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
           <p className="mt-1 text-sm text-muted">{nf.format(total)} matching</p>
         </div>
-        <Link href="/leads/import" className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-accent px-3 text-sm font-medium text-white">
-          <FileSpreadsheet className="h-4 w-4" /> Import Excel
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/leads/import" className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line-strong px-3 text-sm hover:border-accent/60">
+            <FileSpreadsheet className="h-4 w-4" /> Import Excel
+          </Link>
+          <Link
+            href={`/campaigns/new${filtersToQuery({ ...filters, page: 1 })}`}
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-accent px-3 text-sm font-medium text-white"
+            title="Send an SMS campaign to the leads matching these filters"
+          >
+            <Megaphone className="h-4 w-4" /> SMS campaign ({nf.format(total)})
+          </Link>
+        </div>
       </div>
 
       <FilterBar options={options} />

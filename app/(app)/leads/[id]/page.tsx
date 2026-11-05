@@ -6,7 +6,7 @@ import { db, schema } from "@/db";
 import { requireUser } from "@/lib/auth";
 import { digitsOnly, nf, timeAgo } from "@/lib/utils";
 import { Card, PriorityText } from "@/components/ui";
-import { CopyButton, NoteForm, StatusPicker } from "@/components/leads/lead-controls";
+import { CopyButton, NoteForm, SmsOptOutToggle, StatusPicker } from "@/components/leads/lead-controls";
 
 export async function generateMetadata({ params }: PageProps<"/leads/[id]">) {
   const { id } = await params;
@@ -61,6 +61,9 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
     ["Service gaps", lead.serviceGaps],
     ["Address", lead.address],
     ["Bangladesh", lead.inBangladesh == null ? null : lead.inBangladesh ? "Yes" : "No / unclear"],
+    ["SMS real clicks", lead.smsClicks || null],
+    ["Campaigns clicked", lead.smsCampaignsClicked || null],
+    ["Last SMS click", lead.lastClickedAt ? lead.lastClickedAt.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" }) : null],
     ["Source", lead.source],
     ["Added", lead.createdAt.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })]
   ];
@@ -84,7 +87,10 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
             )}
           </p>
         </div>
-        <StatusPicker leadId={lead.id} status={lead.status} />
+        <div className="flex flex-col items-end gap-2">
+          <StatusPicker leadId={lead.id} status={lead.status} />
+          <SmsOptOutToggle leadId={lead.id} optOut={lead.smsOptOut} />
+        </div>
       </div>
 
       {actions.length > 0 && (
@@ -154,7 +160,7 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
                 <li key={a.id} className="relative">
                   <span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-accent" />
                   <div className="text-[11px] text-muted-2">
-                    {a.type === "note" ? "Note" : a.type === "status" ? "Status" : a.type === "form" ? "Website form" : a.type}
+                    {a.type === "note" ? "Note" : a.type === "status" ? "Status" : a.type === "form" ? "Website form" : a.type === "click" ? "SMS click" : a.type}
                     {a.user ? ` · ${a.user}` : ""} · {timeAgo(a.createdAt)}
                   </div>
                   <p className="whitespace-pre-wrap text-sm">{a.body}</p>
