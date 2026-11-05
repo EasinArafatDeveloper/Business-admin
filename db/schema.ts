@@ -90,6 +90,7 @@ export const leads = pgTable(
     /** SMS engagement — only verified human clicks count (see lib/tracking.ts). */
     smsOptOut: boolean("sms_opt_out").notNull().default(false),
     waOptOut: boolean("wa_opt_out").notNull().default(false),
+    emailOptOut: boolean("email_opt_out").notNull().default(false),
     smsClicks: integer("sms_clicks").notNull().default(0),
     smsCampaignsClicked: integer("sms_campaigns_clicked").notNull().default(0),
     lastClickedAt: timestamp("last_clicked_at", { withTimezone: true }),
@@ -170,8 +171,11 @@ export const campaigns = pgTable("campaigns", {
   /** The /leads filter query the audience was built from (for reference). */
   audienceQuery: text("audience_query"),
   status: text("status").notNull().default("draft"),
-  /** sms | whatsapp */
+  /** sms | whatsapp | email */
   channel: text("channel").notNull().default("sms"),
+  /** Email only: subject template and the sender account it goes out from. */
+  subject: text("subject"),
+  senderId: integer("sender_id").references(() => emailSenders.id, { onDelete: "set null" }),
   ratePerMinute: integer("rate_per_minute").notNull().default(30),
   /** WhatsApp pacing: random gap between messages, max per day (all WA campaigns of the workspace). */
   minDelaySec: integer("min_delay_sec").notNull().default(30),
@@ -190,6 +194,30 @@ export const campaigns = pgTable("campaigns", {
   finishedAt: timestamp("finished_at", { withTimezone: true })
 });
 
+/**
+ * Email accounts a workspace sends from (e.g. hello@scaleupweb.xyz via Gmail SMTP, later Brevo/SES).
+ * One per business/domain; the SMTP password is stored encrypted (lib/secrets.ts).
+ */
+export const emailSenders = pgTable("email_senders", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  fromName: text("from_name").notNull(),
+  fromEmail: text("from_email").notNull(),
+  replyTo: text("reply_to"),
+  smtpHost: text("smtp_host").notNull(),
+  smtpPort: integer("smtp_port").notNull().default(465),
+  smtpUser: text("smtp_user").notNull(),
+  smtpPassEnc: text("smtp_pass_enc").notNull(),
+  /** Max emails per day from this sender, across all campaigns (Gmail allows ~500). */
+  dailyLimit: integer("daily_limit").notNull().default(100),
+  signature: text("signature"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+});
+
 /** One row per person in a campaign, with their own tracking code. */
 export const campaignRecipients = pgTable(
   "campaign_recipients",
@@ -200,8 +228,10 @@ export const campaignRecipients = pgTable(
       .notNull()
       .references(() => campaigns.id, { onDelete: "cascade" }),
     leadId: integer("lead_id").references(() => leads.id, { onDelete: "set null" }),
+    /** Mobile number, or the email address for email campaigns. */
     phone: text("phone").notNull(),
     message: text("message").notNull(),
+    subject: text("subject"),
     /** SMS parts this message costs (see lib/sms-text.ts). */
     parts: integer("parts").notNull().default(1),
     trackingCode: text("tracking_code").notNull().unique(),
@@ -246,6 +276,7 @@ export const clickEvents = pgTable(
 );
 
 export type Campaign = typeof campaigns.$inferSelect;
+export type EmailSender = typeof emailSenders.$inferSelect;
 export type CampaignRecipient = typeof campaignRecipients.$inferSelect;
 
 /** Messages people send back to us (WhatsApp replies now, email later) — matched to a lead when possible. */

@@ -14,11 +14,7 @@ function key() {
 }
 
 export async function encrypt(payload: SessionPayload) {
-  return new SignJWT(payload)
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime(`${MAX_AGE_DAYS}d`)
-    .sign(key());
+  return new SignJWT(payload).setProtectedHeader({ alg: "HS256" }).setIssuedAt().setExpirationTime(`${MAX_AGE_DAYS}d`).sign(key());
 }
 
 export async function decrypt(token: string | undefined): Promise<SessionPayload | null> {

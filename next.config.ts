@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   // Lets a production build run in a separate folder while `next dev` keeps using .next.
   distDir: process.env.NEXT_DIST_DIR || ".next",
   // exceljs is a big CommonJS library used only on the server (Excel import).
-  serverExternalPackages: ["exceljs"],
+  serverExternalPackages: ["exceljs", "nodemailer"],
   turbopack: {
     rules: {
       "*.css": {

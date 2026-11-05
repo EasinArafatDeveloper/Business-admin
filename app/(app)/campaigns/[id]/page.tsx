@@ -99,7 +99,12 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
               <CampaignStatus status={c.status} />
             </div>
             <p className="mt-1 text-sm text-muted">
-              {c.channel === "whatsapp" ? (
+              {c.channel === "email" ? (
+              <>
+                Email · “{c.subject}” · {c.minDelaySec}–{c.maxDelaySec}s gap · max {c.dailyLimit}/day
+                {c.status === "sending" && c.nextSendAt ? ` · next email at ${c.nextSendAt.toLocaleTimeString("en-GB", { timeZone: "Asia/Dhaka" })}` : ""}
+              </>
+            ) : c.channel === "whatsapp" ? (
                 <>
                   WhatsApp · {c.minDelaySec}–{c.maxDelaySec}s gap · max {c.dailyLimit}/day · 9am–9pm
                   {c.status === "sending" && c.nextSendAt ? ` · next message at ${c.nextSendAt.toLocaleTimeString("en-GB", { timeZone: "Asia/Dhaka" })}` : ""}
@@ -113,7 +118,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
             </p>
           </div>
         </div>
-        <CampaignControls id={c.id} status={c.status} total={c.totalRecipients} cost={c.channel === "whatsapp" ? "" : cost} />
+        <CampaignControls id={c.id} status={c.status} total={c.totalRecipients} cost={c.channel === "sms" ? cost : ""} />
       </div>
 
       {c.lastError && c.status === "paused" && (
@@ -121,10 +126,10 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
           <span>
             Paused automatically: <b>{c.lastError}</b>. Fix it in{" "}
-            <Link href={`/channels#${c.channel === "whatsapp" ? "whatsapp" : "sms"}`} className="font-medium underline">
+            <Link href={`/channels#${c.channel}`} className="font-medium underline">
               Channels
             </Link>{" "}
-            ({c.channel === "whatsapp" ? "reconnect WhatsApp" : "e.g. recharge BulkSMSBD"}
+            ({c.channel === "whatsapp" ? "reconnect WhatsApp" : c.channel === "email" ? "check the sender's password" : "e.g. recharge BulkSMSBD"}
             ), then press Resume.
           </span>
         </div>
@@ -175,7 +180,7 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
             <thead>
               <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-muted-2">
                 <th className="px-4 py-2.5 font-medium">Business</th>
-                <th className="px-3 py-2.5 font-medium">Phone</th>
+                <th className="px-3 py-2.5 font-medium">{c.channel === "email" ? "Email" : "Phone"}</th>
                 <th className="px-3 py-2.5 font-medium">Status</th>
                 <th className="px-3 py-2.5 font-medium">Real clicks</th>
                 <th className="px-3 py-2.5 font-medium">First click</th>

@@ -150,7 +150,10 @@ export async function findLeads(workspaceId: number, f: LeadFilters) {
       .orderBy(...orderFor(f))
       .limit(PAGE_SIZE)
       .offset((f.page - 1) * PAGE_SIZE),
-    db.select({ total: sql<number>`count(*)::int` }).from(L).where(where)
+    db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(L)
+      .where(where)
   ]);
   return { rows, total };
 }

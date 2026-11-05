@@ -92,6 +92,7 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
           <div className="flex gap-1.5">
             <SmsOptOutToggle leadId={lead.id} optOut={lead.smsOptOut} />
             <SmsOptOutToggle leadId={lead.id} optOut={lead.waOptOut} channel="whatsapp" />
+            <SmsOptOutToggle leadId={lead.id} optOut={lead.emailOptOut} channel="email" />
           </div>
         </div>
       </div>

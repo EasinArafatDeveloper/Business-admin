@@ -10,16 +10,27 @@ import { StepHead } from "@/components/campaigns/step-head";
 const DEFAULT_MESSAGE: Record<Channel, string> = {
   sms: "Assalamu Alaikum {name}! Apnar business er jonno ekta fast website + auto order system banale order 24/7 ashbe. Free audit nite: {link} - ScaleUp Web",
   whatsapp:
-    "{Assalamu Alaikum|Assalamualaikum|Salam} {name} 👋\n\n{Apnar page er ad gula dekhlam|Apnar Facebook page dekhlam} — {onek sundor products|business ta khub valo cholche}! Apnar jonno ekta fast website + 24/7 auto order system banale Messenger e order miss hobe na.\n\nFree audit (kono charge nai): {link}\n\n— Easin, ScaleUp Web\n(Ar message na chaile STOP likhun)"
+    "{Assalamu Alaikum|Assalamualaikum|Salam} {name} 👋\n\n{Apnar page er ad gula dekhlam|Apnar Facebook page dekhlam} — {onek sundor products|business ta khub valo cholche}! Apnar jonno ekta fast website + 24/7 auto order system banale Messenger e order miss hobe na.\n\nFree audit (kono charge nai): {link}\n\n— Easin, ScaleUp Web\n(Ar message na chaile STOP likhun)",
+  email:
+    "Assalamu Alaikum,\n\nI came across {name} on Facebook — {your products look great|your ads are running well}. Most shops like yours lose orders in Messenger when nobody replies at night.\n\nWe build fast websites with 24/7 automatic ordering, so every order gets taken even while you sleep.\n\nWant a free audit of your page? {link}\n\nBest regards,\nEasin Arafat\nScaleUp Web"
+};
+const DEFAULT_SUBJECT = "{Quick idea|A quick question} for {name}";
+
+const GAPS: Record<"whatsapp" | "email", [string, string][]> = {
+  whatsapp: [
+    ["20-45", "20–45 s (faster)"],
+    ["30-90", "30–90 s (recommended)"],
+    ["60-180", "1–3 min (safest)"]
+  ],
+  email: [
+    ["20-60", "20–60 s (faster)"],
+    ["60-180", "1–3 min (recommended)"],
+    ["180-420", "3–7 min (safest)"]
+  ]
 };
 
-const GAPS = [
-  ["20-45", "20–45 s (faster)"],
-  ["30-90", "30–90 s (recommended)"],
-  ["60-180", "1–3 min (safest)"]
-] as const;
-
-type Channel = "sms" | "whatsapp";
+type Channel = "sms" | "whatsapp" | "email";
+export type SenderOption = { id: number; fromName: string; fromEmail: string; dailyLimit: number; sentToday: number };
 
 export function CampaignForm({
   channel,
@@ -30,7 +41,8 @@ export function CampaignForm({
   linkBase,
   rate,
   balance,
-  waConnected = true
+  waConnected = true,
+  senders = []
 }: {
   channel: Channel;
   audienceQuery: string;
@@ -41,25 +53,37 @@ export function CampaignForm({
   rate: number;
   balance: number | null;
   waConnected?: boolean;
+  senders?: SenderOption[];
 }) {
   const wa = channel === "whatsapp";
+  const em = channel === "email";
+  const paced = wa || em;
+  const [subject, setSubject] = useState(DEFAULT_SUBJECT);
+  const [senderId, setSenderId] = useState(senders[0]?.id ?? 0);
+  const sender = senders.find((x) => x.id === senderId);
   const [state, action, pending] = useActionState(createCampaign, undefined);
   const [message, setMessage] = useState(DEFAULT_MESSAGE[channel]);
   const [speed, setSpeed] = useState(30);
-  const [cleanNames, setCleanNames] = useState(!wa);
-  const [gap, setGap] = useState<(typeof GAPS)[number][0]>("30-90");
+  const [cleanNames, setCleanNames] = useState(channel === "sms");
+  const [gap, setGap] = useState(em ? "60-180" : "30-90");
   const [daily, setDaily] = useState(30);
   const ta = useRef<HTMLTextAreaElement>(null);
 
   const link = sampleLink(linkBase);
-  const preview = renderTemplate(message, { ...sample, link }, { cleanNames });
+  // Same variation on server and browser; "Shuffle" shows another one.
+  const [variant, setVariant] = useState(0);
+  const pick = (n: number) => variant % n;
+  const preview = renderTemplate(message, { ...sample, link }, { cleanNames, pick });
   const { parts, chars, unicode } = smsParts(preview);
   const est = estimateParts(message, groups, link.length, { cleanNames });
   const cost = est.totalParts * rate;
   const minutes = Math.ceil(audienceSize / speed);
-  const notEnough = !wa && balance != null && cost > balance;
+  const notEnough = channel === "sms" && balance != null && cost > balance;
   const [minGap, maxGap] = gap.split("-").map(Number);
-  const days = Math.ceil(audienceSize / daily);
+  const perDay = em ? (sender?.dailyLimit ?? 100) : daily;
+  const days = Math.ceil(audienceSize / perDay);
+  const previewSubject = renderTemplate(subject, { ...sample, link }, { pick });
+  const label = em ? "email" : wa ? "WhatsApp" : "SMS";
 
   const insert = (token: string) => {
     const el = ta.current;
@@ -76,7 +100,8 @@ export function CampaignForm({
     <form action={action} className="grid grid-cols-1 gap-5 lg:grid-cols-5">
       <input type="hidden" name="audienceQuery" value={audienceQuery} />
       <input type="hidden" name="channel" value={channel} />
-      {wa && (
+      {em && <input type="hidden" name="dailyLimit" value={perDay} />}
+      {paced && (
         <>
           <input type="hidden" name="minDelaySec" value={minGap} />
           <input type="hidden" name="maxDelaySec" value={maxGap} />
@@ -92,16 +117,41 @@ export function CampaignForm({
             <input
               name="name"
               required
-              placeholder={wa ? "e.g. Fashion Hot — WhatsApp intro" : "e.g. Fashion Hot leads — e-commerce offer"}
+              placeholder={em ? "e.g. Fashion Hot — email intro" : wa ? "e.g. Fashion Hot — WhatsApp intro" : "e.g. Fashion Hot leads — e-commerce offer"}
               className={inputClass}
             />
           </label>
 
+          {em && (
+            <>
+              <label className="block">
+                <Label hint={senders.length ? "address the email comes from" : undefined}>From</Label>
+                {senders.length ? (
+                  <select name="senderId" value={senderId} onChange={(e) => setSenderId(Number(e.target.value))} className={inputClass}>
+                    {senders.map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.fromName} &lt;{x.fromEmail}&gt; · {x.sentToday}/{x.dailyLimit} today
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <a href="/channels#email" className="block rounded-xl border border-warning/40 bg-warning/10 px-3 py-2.5 text-sm text-warning">
+                    No sender yet — connect hello@yourdomain in Channels first →
+                  </a>
+                )}
+              </label>
+              <label className="block">
+                <Label hint={`${previewSubject.length} chars · {a|b} works here too`}>Subject</Label>
+                <input name="subject" required value={subject} onChange={(e) => setSubject(e.target.value)} className={inputClass} />
+              </label>
+            </>
+          )}
+
           <div>
             <Label
               hint={
-                wa
-                  ? `${[...preview].length} chars · WhatsApp is free per message`
+                paced
+                  ? `${[...preview].length} chars · ${em ? "an unsubscribe link is added at the bottom" : "WhatsApp is free per message"}`
                   : `preview: ${chars} chars · ${parts} part${parts > 1 ? "s" : ""}${unicode ? " · Bangla/emoji → 70 per part" : " · English → 160 per part"}`
               }
             >
@@ -111,7 +161,7 @@ export function CampaignForm({
               ref={ta}
               name="message"
               required
-              rows={wa ? 10 : 6}
+              rows={paced ? 11 : 6}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               className="w-full rounded-xl border border-line-strong bg-ink-alt p-3 text-sm outline-none focus:border-accent"
@@ -137,11 +187,11 @@ export function CampaignForm({
             </div>
             <p className="mt-1.5 text-xs text-muted-2">
               {"{a|b|c}"} picks one option at random for each person
-              {wa ? " — strongly recommended on WhatsApp so messages aren't identical" : ""}.
+              {paced ? " — recommended so messages aren't identical" : ""}.
             </p>
           </div>
 
-          {!wa && (
+          {channel === "sms" && (
             <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-line bg-ink-alt p-3">
               <input
                 type="checkbox"
@@ -168,28 +218,35 @@ export function CampaignForm({
         <Card className="space-y-4 p-5">
           <div className="text-sm font-medium">Delivery</div>
 
-          {wa ? (
+          {paced ? (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="block">
-                <Label>Gap between messages</Label>
-                <select value={gap} onChange={(e) => setGap(e.target.value as typeof gap)} className={inputClass}>
-                  {GAPS.map(([v, l]) => (
+                <Label>Gap between {em ? "emails" : "messages"}</Label>
+                <select value={gap} onChange={(e) => setGap(e.target.value)} className={inputClass}>
+                  {GAPS[em ? "email" : "whatsapp"].map(([v, l]) => (
                     <option key={v} value={v}>
                       {l}
                     </option>
                   ))}
                 </select>
               </label>
-              <label className="block">
-                <Label hint="all WhatsApp campaigns together">Max per day</Label>
-                <select name="dailyLimit" value={daily} onChange={(e) => setDaily(Number(e.target.value))} className={inputClass}>
-                  {[20, 30, 50, 100, 150, 250].map((n) => (
-                    <option key={n} value={n}>
-                      {n} messages / day{n <= 30 ? " (new number)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {em ? (
+                <div>
+                  <Label hint="set per sender in Channels">Max per day</Label>
+                  <div className={cn(inputClass, "flex items-center text-muted")}>{perDay} emails / day</div>
+                </div>
+              ) : (
+                <label className="block">
+                  <Label hint="all WhatsApp campaigns together">Max per day</Label>
+                  <select name="dailyLimit" value={daily} onChange={(e) => setDaily(Number(e.target.value))} className={inputClass}>
+                    {[20, 30, 50, 100, 150, 250].map((n) => (
+                      <option key={n} value={n}>
+                        {n} messages / day{n <= 30 ? " (new number)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </div>
           ) : (
             <label className="block">
@@ -210,27 +267,49 @@ export function CampaignForm({
         <StepHead n={4} title="Review" />
         <div className="space-y-4 lg:sticky lg:top-6">
           <Card className="p-5">
-            <div className="text-xs text-muted">Preview — {sample.name} (one random variation)</div>
-            <div
-              className={cn(
-                "mt-3 whitespace-pre-wrap break-words rounded-2xl rounded-tl-sm p-3.5 text-sm leading-relaxed",
-                wa ? "bg-[#005c4b] text-white" : "bg-surface-2"
-              )}
-            >
-              {preview}
+            <div className="flex items-center justify-between text-xs text-muted">
+              <span>Preview — {sample.name}</span>
+              <button type="button" onClick={() => setVariant((v) => v + 1)} className="rounded-lg px-2 py-0.5 hover:bg-surface-2 hover:text-fg">
+                Shuffle variation
+              </button>
             </div>
+            {em ? (
+              <div className="mt-3 overflow-hidden rounded-xl border border-line bg-white text-[#1f2937]">
+                <div className="border-b border-black/10 px-3.5 py-2.5 text-xs">
+                  <div className="font-semibold">{previewSubject || "(no subject)"}</div>
+                  <div className="text-[#6b7280]">{sender ? `${sender.fromName} <${sender.fromEmail}>` : "No sender"}</div>
+                </div>
+                <div className="whitespace-pre-wrap break-words px-3.5 py-3 text-sm leading-relaxed">
+                  {preview}
+                  <span className="text-[#6b7280]">{"\n\n--\nDon't want these emails? Unsubscribe: …"}</span>
+                </div>
+              </div>
+            ) : (
+              <div
+                className={cn(
+                  "mt-3 whitespace-pre-wrap break-words rounded-2xl rounded-tl-sm p-3.5 text-sm leading-relaxed",
+                  wa ? "bg-[#005c4b] text-white" : "bg-surface-2"
+                )}
+              >
+                {preview}
+              </div>
+            )}
           </Card>
 
-          {wa ? (
+          {paced ? (
             <Card className="space-y-2 p-5 text-sm">
               <Row k="Recipients" v={nf.format(audienceSize)} />
-              <Row k="Cost" v="Free (WhatsApp)" />
-              <Row k="Per day" v={`${daily} messages, 9am–9pm`} />
+              <Row k="Cost" v={em ? "Free (your mailbox)" : "Free (WhatsApp)"} />
+              <Row k="Per day" v={em ? `${perDay} emails` : `${daily} messages, 9am–9pm`} />
               <div className="border-t border-line pt-2">
                 <Row k="Takes about" v={`${nf.format(days)} day${days > 1 ? "s" : ""}`} strong />
               </div>
-              <p className="text-xs text-muted-2">Numbers that aren&apos;t on WhatsApp are skipped automatically.</p>
-              {!waConnected && <p className="text-xs text-warning">WhatsApp isn&apos;t connected — link it in Channels before pressing Start.</p>}
+              {em ? (
+                <p className="text-xs text-muted-2">Every email gets its own tracking link and a one-click unsubscribe. Replies go to your inbox.</p>
+              ) : (
+                <p className="text-xs text-muted-2">Numbers that aren&apos;t on WhatsApp are skipped automatically.</p>
+              )}
+              {wa && !waConnected && <p className="text-xs text-warning">WhatsApp isn&apos;t connected — link it in Channels before pressing Start.</p>}
             </Card>
           ) : (
             <Card className="space-y-2 p-5 text-sm">
@@ -260,8 +339,8 @@ export function CampaignForm({
           )}
 
           {state?.error && <p className="rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">{state.error}</p>}
-          <Button type="submit" disabled={pending || audienceSize === 0} className="w-full">
-            {pending ? "Preparing links…" : `Create ${wa ? "WhatsApp" : "SMS"} campaign (${nf.format(audienceSize)} people)`}
+          <Button type="submit" disabled={pending || audienceSize === 0 || (em && !sender)} className="w-full">
+            {pending ? "Preparing links…" : `Create ${label} campaign (${nf.format(audienceSize)} people)`}
           </Button>
           <p className="text-center text-xs text-muted-2">Nothing is sent yet — you can send yourself a test and start it on the next page.</p>
         </div>

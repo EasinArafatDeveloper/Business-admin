@@ -41,7 +41,7 @@ const PRESETS: [string, string, Record<string, string>][] = [
 export default async function NewCampaignPage({ searchParams }: PageProps<"/campaigns/new">) {
   const user = await requireUser();
   const sp = await searchParams;
-  const channel = sp.channel === "whatsapp" ? "whatsapp" : "sms";
+  const channel = sp.channel === "whatsapp" || sp.channel === "email" ? sp.channel : "sms";
   const filters = parseFilters(sp);
   const query = filtersToQuery({ ...filters, page: 1 }).replace(/^\?/, "");
   const [{ audience, matched, noNumber, duplicate }, health] = await Promise.all([
@@ -50,7 +50,7 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
   ]);
   const withChannel = (c: string, q = query) => {
     const p = new URLSearchParams(q);
-    if (c === "whatsapp") p.set("channel", "whatsapp");
+    if (c !== "sms") p.set("channel", c);
     return `/campaigns/new${p.size ? `?${p}` : ""}`;
   };
   const sample = audience[0];
@@ -73,6 +73,14 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
       facts: ["Free per message", `${health.whatsapp.dailyLimit}/day, ${health.whatsapp.window}`, "People can reply"],
       status: waReady ? `Connected · +${health.whatsapp.status.me?.id}` : "Not connected",
       warn: !waReady
+    },
+    {
+      key: "email" as const,
+      facts: ["Free from your own address", "Subject + longer message", "One-click unsubscribe"],
+      status: health.email.senders.length
+        ? `${health.email.senders[0].fromEmail}${health.email.senders.length > 1 ? ` +${health.email.senders.length - 1}` : ""}`
+        : "No sender yet",
+      warn: health.email.senders.length === 0
     }
   ];
 
@@ -117,14 +125,19 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
               </Link>
             );
           })}
-          <div className="rounded-2xl border border-dashed border-line p-4 opacity-60">
-            <div className="flex items-center gap-3">
-              <ChannelIcon channel="email" />
-              <span className="font-medium">Email</span>
-            </div>
-            <p className="mt-3 text-xs text-muted">Coming next — your own domains, open & click tracking.</p>
-          </div>
         </div>
+        {channel === "email" && health.email.senders.length === 0 && (
+          <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <span>
+              Connect the address you send from first —{" "}
+              <Link href="/channels#email" className="font-medium underline">
+                add a sender
+              </Link>{" "}
+              (e.g. hello@scaleupweb.xyz through Gmail).
+            </span>
+          </div>
+        )}
         {channel === "whatsapp" && !waReady && (
           <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm">
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
@@ -148,8 +161,9 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
               <div className="text-3xl font-semibold tracking-tight">{nf.format(audience.length)}</div>
               <div className="text-sm text-muted">people will get this {CHANNELS[channel].label}</div>
               <div className="mt-2 text-xs text-muted-2">
-                {nf.format(matched)} leads matched · {nf.format(noNumber)} without a valid {channel === "whatsapp" ? "WhatsApp/mobile" : "mobile"} number ·{" "}
-                {nf.format(duplicate)} duplicates removed · opted-out excluded
+                {nf.format(matched)} leads matched · {nf.format(noNumber)} without a valid{" "}
+                {channel === "email" ? "email address" : channel === "whatsapp" ? "WhatsApp/mobile" : "mobile"} · {nf.format(duplicate)} duplicates removed ·
+                opted-out excluded
               </div>
             </div>
             <Link
@@ -203,6 +217,7 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
         rate={health.sms.rate}
         balance={health.sms.balance}
         waConnected={waReady}
+        senders={health.email.senders}
       />
     </div>
   );

@@ -14,8 +14,7 @@ export function normalizeBdMobile(raw: string | null | undefined): string | null
  * Plain English (GSM-7 alphabet): 160 chars in one piece, 153 per piece when longer.
  * One Bangla letter or emoji switches the WHOLE message to Unicode: 70 / 67 per piece.
  */
-const GSM =
-  "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";
+const GSM = "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";
 const GSM_EXT = "^{}\\[~]|€"; // allowed, but count as 2
 
 const isGsm = (c: string) => GSM.includes(c) || GSM_EXT.includes(c);
@@ -72,13 +71,16 @@ export function spinLongest(text: string) {
 }
 
 export type TemplateVars = { name?: string | null; service?: string | null; link: string };
-export type RenderOptions = { cleanNames?: boolean };
+export type RenderOptions = { cleanNames?: boolean; pick?: (n: number) => number };
 
 /** Fills {name} {service} {link}. With cleanNames, Bangla/emoji in names are dropped (see cleanName). */
 export function renderTemplate(template: string, v: TemplateVars, opts: RenderOptions = {}) {
-  const name = opts.cleanNames ? cleanName(v.name) ?? NAME_FALLBACK : (v.name ?? "").trim() || NAME_FALLBACK;
-  const service = opts.cleanNames ? cleanName(v.service) ?? SERVICE_FALLBACK : (v.service ?? "").trim() || SERVICE_FALLBACK;
-  return spin(template).replace(/\{name\}/gi, name).replace(/\{service\}/gi, service).replace(/\{link\}/gi, v.link);
+  const name = opts.cleanNames ? (cleanName(v.name) ?? NAME_FALLBACK) : (v.name ?? "").trim() || NAME_FALLBACK;
+  const service = opts.cleanNames ? (cleanName(v.service) ?? SERVICE_FALLBACK) : (v.service ?? "").trim() || SERVICE_FALLBACK;
+  return spin(template, opts.pick)
+    .replace(/\{name\}/gi, name)
+    .replace(/\{service\}/gi, service)
+    .replace(/\{link\}/gi, v.link);
 }
 
 /** Length a tracking link adds to the SMS (base + "/" + 6-char code). */
@@ -127,7 +129,10 @@ export function groupAudience(people: { name: string | null; service: string | n
 /** Exact total parts for a template over the grouped audience. */
 export function estimateParts(rawTemplate: string, groups: AudienceGroup[], linkLen: number, opts: RenderOptions = {}) {
   const template = spinLongest(rawTemplate);
-  const fixed = template.replace(/\{name\}/gi, "").replace(/\{service\}/gi, "").replace(/\{link\}/gi, "");
+  const fixed = template
+    .replace(/\{name\}/gi, "")
+    .replace(/\{service\}/gi, "")
+    .replace(/\{link\}/gi, "");
   const fixedLen = smsLength(fixed);
   const nName = (template.match(/\{name\}/gi) ?? []).length;
   const nSvc = (template.match(/\{service\}/gi) ?? []).length;

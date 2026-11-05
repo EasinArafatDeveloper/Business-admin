@@ -1,7 +1,7 @@
 import "server-only";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { WA_HOURS, dhakaNow } from "@/lib/campaigns";
+import { WA_HOURS, dhakaNow, emailsSentToday } from "@/lib/campaigns";
 import { getBalance, smsRate } from "@/lib/sms";
 import { getWaStatus, type WaStatus } from "@/lib/wa";
 
@@ -20,13 +20,45 @@ export type ChannelHealth = {
     windowOpen: boolean;
     window: string;
   };
+  email: {
+    senders: {
+      id: number;
+      fromName: string;
+      fromEmail: string;
+      smtpHost: string;
+      dailyLimit: number;
+      sentToday: number;
+      lastError: string | null;
+      verifiedAt: Date | null;
+    }[];
+    sentToday: number;
+    dailyLimit: number;
+  };
 };
+
+export async function getEmailSenders(workspaceId: number) {
+  const S = schema.emailSenders;
+  const rows = await db
+    .select({
+      id: S.id,
+      fromName: S.fromName,
+      fromEmail: S.fromEmail,
+      smtpHost: S.smtpHost,
+      dailyLimit: S.dailyLimit,
+      lastError: S.lastError,
+      verifiedAt: S.verifiedAt
+    })
+    .from(S)
+    .where(eq(S.workspaceId, workspaceId))
+    .orderBy(S.id);
+  return Promise.all(rows.map(async (r) => ({ ...r, sentToday: await emailsSentToday(r.id) })));
+}
 
 /** Live state of every sending channel, for the Campaigns hub and the Channels page. */
 export async function getChannelHealth(workspaceId: number): Promise<ChannelHealth> {
   const { hour, startOfDay } = dhakaNow();
   const configured = Boolean(process.env.BULKSMSBD_API_KEY && process.env.BULKSMSBD_SENDER_ID);
-  const [balance, status, [today], [latest]] = await Promise.all([
+  const [balance, status, [today], [latest], senders] = await Promise.all([
     configured ? getBalance() : Promise.resolve(null),
     getWaStatus(),
     db
@@ -40,7 +72,8 @@ export async function getChannelHealth(workspaceId: number): Promise<ChannelHeal
       .from(C)
       .where(and(eq(C.workspaceId, workspaceId), eq(C.channel, "whatsapp")))
       .orderBy(sql`(${C.status} = 'sending') desc`, desc(C.id))
-      .limit(1)
+      .limit(1),
+    getEmailSenders(workspaceId)
   ]);
   const rate = smsRate();
   const smsLeft = balance == null ? null : Math.floor(balance / rate);
@@ -53,6 +86,11 @@ export async function getChannelHealth(workspaceId: number): Promise<ChannelHeal
       dailyLimit: latest?.dailyLimit ?? WA_DEFAULT_DAILY,
       windowOpen: hour >= WA_HOURS.from && hour < WA_HOURS.to,
       window: `${fmt(WA_HOURS.from)}–${fmt(WA_HOURS.to)}`
+    },
+    email: {
+      senders,
+      sentToday: senders.reduce((a, x) => a + x.sentToday, 0),
+      dailyLimit: senders.reduce((a, x) => a + x.dailyLimit, 0)
     }
   };
 }

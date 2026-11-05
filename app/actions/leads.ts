@@ -44,9 +44,9 @@ export async function setLeadsStatus(leadIds: number[], status: string) {
     .where(and(eq(L.workspaceId, user.workspaceId), inArray(L.id, ids)))
     .returning({ id: L.id });
   if (changed.length) {
-    await db.insert(schema.leadActivities).values(
-      changed.map((c) => ({ workspaceId: user.workspaceId, leadId: c.id, userId: user.id, type: "status", body: `→ ${status} (bulk)` }))
-    );
+    await db
+      .insert(schema.leadActivities)
+      .values(changed.map((c) => ({ workspaceId: user.workspaceId, leadId: c.id, userId: user.id, type: "status", body: `→ ${status} (bulk)` })));
   }
   revalidatePath("/leads");
   return { updated: changed.length };
@@ -54,7 +54,9 @@ export async function setLeadsStatus(leadIds: number[], status: string) {
 
 export async function addLeadNote(leadId: number, formData: FormData) {
   const user = await requireUser();
-  const body = String(formData.get("body") ?? "").trim().slice(0, 4000);
+  const body = String(formData.get("body") ?? "")
+    .trim()
+    .slice(0, 4000);
   if (!body) return;
   const [lead] = await db
     .select({ id: L.id })
@@ -68,11 +70,11 @@ export async function addLeadNote(leadId: number, formData: FormData) {
 }
 
 /** "Don't SMS me" — excluded from every future campaign. */
-export async function setSmsOptOut(leadId: number, optOut: boolean, channel: "sms" | "whatsapp" = "sms") {
+export async function setSmsOptOut(leadId: number, optOut: boolean, channel: "sms" | "whatsapp" | "email" = "sms") {
   const user = await requireUser();
   const changed = await db
     .update(L)
-    .set({ ...(channel === "whatsapp" ? { waOptOut: optOut } : { smsOptOut: optOut }), updatedAt: new Date() })
+    .set({ ...(channel === "whatsapp" ? { waOptOut: optOut } : channel === "email" ? { emailOptOut: optOut } : { smsOptOut: optOut }), updatedAt: new Date() })
     .where(and(eq(L.id, leadId), eq(L.workspaceId, user.workspaceId)))
     .returning({ id: L.id });
   if (changed.length) {
@@ -81,7 +83,7 @@ export async function setSmsOptOut(leadId: number, optOut: boolean, channel: "sm
       leadId,
       userId: user.id,
       type: "status",
-      body: `${optOut ? "Opted out of" : "Allowed again:"} ${channel === "whatsapp" ? "WhatsApp" : "SMS"}`
+      body: `${optOut ? "Opted out of" : "Allowed again:"} ${channel === "whatsapp" ? "WhatsApp" : channel === "email" ? "email" : "SMS"}`
     });
   }
   revalidatePath(`/leads/${leadId}`);

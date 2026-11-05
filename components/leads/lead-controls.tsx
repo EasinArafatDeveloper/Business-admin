@@ -77,7 +77,7 @@ export function NoteForm({ leadId }: { leadId: number }) {
   );
 }
 
-export function SmsOptOutToggle({ leadId, optOut, channel = "sms" }: { leadId: number; optOut: boolean; channel?: "sms" | "whatsapp" }) {
+export function SmsOptOutToggle({ leadId, optOut, channel = "sms" }: { leadId: number; optOut: boolean; channel?: "sms" | "whatsapp" | "email" }) {
   const [pending, startTransition] = useTransition();
   return (
     <button
@@ -88,7 +88,7 @@ export function SmsOptOutToggle({ leadId, optOut, channel = "sms" }: { leadId: n
         optOut ? "border-danger/40 bg-danger/10 text-danger" : "border-line-strong text-muted hover:text-fg"
       )}
     >
-      {optOut ? `Don't ${channel === "whatsapp" ? "WhatsApp" : "SMS"} — on` : `Don't ${channel === "whatsapp" ? "WhatsApp" : "SMS"}`}
+      {`Don't ${channel === "whatsapp" ? "WhatsApp" : channel === "email" ? "email" : "SMS"}${optOut ? " — on" : ""}`}
     </button>
   );
 }

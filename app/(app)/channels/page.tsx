@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { ArrowUpRight, Check, ShieldCheck } from "lucide-react";
 import { requireUser } from "@/lib/auth";
 import { getChannelHealth } from "@/lib/channels";
@@ -6,12 +5,13 @@ import { nf } from "@/lib/utils";
 import { Card } from "@/components/ui";
 import { ChannelIcon, Health } from "@/components/campaigns/channel";
 import { WaConnect } from "@/components/whatsapp/wa-connect";
+import { EmailSection } from "@/components/email/email-section";
 
 export const metadata = { title: "Channels" };
 
 export default async function ChannelsPage() {
   const user = await requireUser();
-  const { sms, whatsapp: wa } = await getChannelHealth(user.workspaceId);
+  const { sms, whatsapp: wa, email } = await getChannelHealth(user.workspaceId);
   const sender = process.env.BULKSMSBD_SENDER_ID;
 
   return (
@@ -95,17 +95,18 @@ export default async function ChannelsPage() {
 
       {/* Email */}
       <section id="email" className="scroll-mt-20 space-y-3">
-        <SectionHead channel="email" title="Email" desc="Your own domains · inbox + campaigns">
-          <Health tone="off">Coming next</Health>
+        <SectionHead channel="email" title="Email" desc="Your own domain addresses · campaigns with unsubscribe">
+          {email.senders.length === 0 ? (
+            <Health tone="off">No sender yet</Health>
+          ) : email.senders.some((x) => x.lastError) ? (
+            <Health tone="warn">Check senders</Health>
+          ) : (
+            <Health tone="ok">
+              {email.senders.length} sender{email.senders.length > 1 ? "s" : ""}
+            </Health>
+          )}
         </SectionHead>
-        <Card className="border-dashed p-5 text-sm text-muted">
-          Connect any of your domains, create addresses like hello@ or support@, read and reply here, and send email campaigns with open/click tracking and an
-          unsubscribe link. Replies will land in the{" "}
-          <Link href="/inbox" className="text-accent-soft hover:underline">
-            Inbox
-          </Link>{" "}
-          next to WhatsApp.
-        </Card>
+        <EmailSection email={email} userEmail={user.email} />
       </section>
     </div>
   );

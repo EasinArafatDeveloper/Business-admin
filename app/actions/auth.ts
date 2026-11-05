@@ -20,7 +20,9 @@ export async function login(_: FormState, formData: FormData): Promise<FormState
   const ip = await clientIp();
   if (isBlocked(ip)) return { error: "Too many wrong attempts. Try again in 15 minutes." };
 
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const email = String(formData.get("email") ?? "")
+    .trim()
+    .toLowerCase();
   const password = String(formData.get("password") ?? "");
   const [user] = await db.select().from(schema.users).where(eq(schema.users.email, email)).limit(1);
 
@@ -58,7 +60,14 @@ export async function setup(_: FormState, formData: FormData): Promise<FormState
   const user = await db.transaction(async (tx) => {
     const [ws] = await tx
       .insert(schema.workspaces)
-      .values({ name: workspace, slug: workspace.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "main" })
+      .values({
+        name: workspace,
+        slug:
+          workspace
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "") || "main"
+      })
       .returning();
     const [u] = await tx
       .insert(schema.users)

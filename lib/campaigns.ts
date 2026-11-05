@@ -6,13 +6,21 @@ import { normalizeBdMobile, renderTemplate, smsParts } from "@/lib/sms-text";
 import { FATAL_CODES, sendSms } from "@/lib/sms";
 import { linkBase, newCode } from "@/lib/tracking";
 import { waSend } from "@/lib/wa";
+import { normalizeEmail, sendEmail } from "@/lib/email";
 
 const L = schema.leads;
 const C = schema.campaigns;
 const R = schema.campaignRecipients;
 
 export const MAX_RECIPIENTS = 50_000;
-export type Channel = "sms" | "whatsapp";
+export type Channel = "sms" | "whatsapp" | "email";
+
+/** Base URL of the public unsubscribe page (same host as the tracking links). */
+export const unsubscribeUrl = (code: string) => `${new URL(linkBase()).origin}/u/${code}`;
+const EMAIL_FOOTER = (url: string) => `
+
+--
+Don't want these emails? Unsubscribe: ${url}`;
 
 /** WhatsApp only sends in these Dhaka hours (people reply; nobody gets pinged at night). */
 export const WA_HOURS = { from: 9, to: 21 };
@@ -22,9 +30,9 @@ export const WA_HOURS = { from: 9, to: 21 };
  * not opted out of the channel, one per number. WhatsApp prefers the WhatsApp column.
  */
 export async function buildAudience(workspaceId: number, filters: LeadFilters, channel: Channel = "sms") {
-  const optOut = channel === "whatsapp" ? L.waOptOut : L.smsOptOut;
+  const optOut = channel === "whatsapp" ? L.waOptOut : channel === "email" ? L.emailOptOut : L.smsOptOut;
   const rows = await db
-    .select({ id: L.id, name: L.pageName, service: L.primaryService, phone: L.phone, whatsapp: L.whatsapp })
+    .select({ id: L.id, name: L.pageName, service: L.primaryService, phone: L.phone, whatsapp: L.whatsapp, email: L.email })
     .from(L)
     .where(and(whereFor(workspaceId, filters), eq(optOut, false)))
     .orderBy(sql`${L.score} desc nulls last`, asc(L.id))
@@ -36,9 +44,11 @@ export async function buildAudience(workspaceId: number, filters: LeadFilters, c
   let duplicate = 0;
   for (const r of rows) {
     const phone =
-      channel === "whatsapp"
-        ? normalizeBdMobile(r.whatsapp) ?? normalizeBdMobile(r.phone)
-        : normalizeBdMobile(r.phone) ?? normalizeBdMobile(r.whatsapp);
+      channel === "email"
+        ? normalizeEmail(r.email)
+        : channel === "whatsapp"
+          ? (normalizeBdMobile(r.whatsapp) ?? normalizeBdMobile(r.phone))
+          : (normalizeBdMobile(r.phone) ?? normalizeBdMobile(r.whatsapp));
     if (!phone) {
       noNumber++;
       continue;
@@ -69,10 +79,15 @@ export async function createCampaignWithRecipients(input: {
   minDelaySec?: number;
   maxDelaySec?: number;
   dailyLimit?: number;
+  subject?: string;
+  senderId?: number;
 }) {
   const channel = input.channel ?? "sms";
   const { audience } = await buildAudience(input.workspaceId, input.filters, channel);
-  if (audience.length === 0) throw new Error("No leads with a valid Bangladeshi mobile number match these filters.");
+  if (audience.length === 0)
+    throw new Error(
+      channel === "email" ? "No leads with a valid email address match these filters." : "No leads with a valid Bangladeshi mobile number match these filters."
+    );
 
   const [campaign] = await db
     .insert(C)
@@ -88,6 +103,8 @@ export async function createCampaignWithRecipients(input: {
       minDelaySec: input.minDelaySec ?? 30,
       maxDelaySec: input.maxDelaySec ?? 90,
       dailyLimit: input.dailyLimit ?? 150,
+      subject: input.subject ?? null,
+      senderId: input.senderId ?? null,
       totalRecipients: audience.length
     })
     .returning({ id: C.id });
@@ -99,7 +116,9 @@ export async function createCampaignWithRecipients(input: {
     for (let attempt = 0; pending.length > 0 && attempt < 5; attempt++) {
       const rows = pending.map((a) => {
         const code = newCode();
-        const message = renderTemplate(input.message, { name: a.name, service: a.service, link: `${base}/${code}` }, { cleanNames: input.cleanNames });
+        const vars = { name: a.name, service: a.service, link: `${base}/${code}` };
+        let message = renderTemplate(input.message, vars, { cleanNames: input.cleanNames });
+        if (channel === "email") message += EMAIL_FOOTER(unsubscribeUrl(code));
         return {
           workspaceId: input.workspaceId,
           campaignId: campaign.id,
@@ -107,6 +126,7 @@ export async function createCampaignWithRecipients(input: {
           phone: a.phone,
           trackingCode: code,
           message,
+          subject: channel === "email" ? renderTemplate(input.subject ?? "", vars).slice(0, 200) : null,
           parts: channel === "sms" ? smsParts(message).parts : 1
         };
       });
@@ -127,31 +147,41 @@ async function finishIfEmpty(campaignId: number) {
     .select({ left: sql<number>`count(*)::int` })
     .from(R)
     .where(and(eq(R.campaignId, campaignId), inArray(R.status, ["queued", "sending"])));
-  if (left === 0) await db.update(C).set({ status: "done", finishedAt: new Date() }).where(and(eq(C.id, campaignId), eq(C.status, "sending")));
+  if (left === 0)
+    await db
+      .update(C)
+      .set({ status: "done", finishedAt: new Date() })
+      .where(and(eq(C.id, campaignId), eq(C.status, "sending")));
 }
 
 /** Claims up to `n` queued recipients so a restart or second tick can't send the same message twice. */
 async function claim(campaignId: number, n: number) {
-  const rows = await db.execute<{ id: number; phone: string; message: string; lead_id: number | null }>(sql`
+  const rows = await db.execute<{ id: number; phone: string; message: string; subject: string | null; tracking_code: string; lead_id: number | null }>(sql`
     update campaign_recipients set status = 'sending'
     where id in (
       select id from campaign_recipients where campaign_id = ${campaignId} and status = 'queued'
       order by id limit ${n} for update skip locked
     )
-    returning id, phone, message, lead_id`);
+    returning id, phone, message, subject, tracking_code, lead_id`);
   return [...rows];
 }
 
 async function markSent(campaignId: number, r: { id: number; lead_id: number | null }, code: string | null) {
   const now = new Date();
   await db.update(R).set({ status: "sent", sentAt: now, providerCode: code, error: null }).where(eq(R.id, r.id));
-  await db.update(C).set({ sentCount: sql`${C.sentCount} + 1` }).where(eq(C.id, campaignId));
+  await db
+    .update(C)
+    .set({ sentCount: sql`${C.sentCount} + 1` })
+    .where(eq(C.id, campaignId));
   if (r.lead_id) await db.update(L).set({ lastContactedAt: now }).where(eq(L.id, r.lead_id));
 }
 
 async function markFailed(campaignId: number, recipientId: number, code: string | null, error: string) {
   await db.update(R).set({ status: "failed", providerCode: code, error }).where(eq(R.id, recipientId));
-  await db.update(C).set({ failedCount: sql`${C.failedCount} + 1` }).where(eq(C.id, campaignId));
+  await db
+    .update(C)
+    .set({ failedCount: sql`${C.failedCount} + 1` })
+    .where(eq(C.id, campaignId));
 }
 
 async function pause(campaignId: number, recipientId: number, reason: string) {
@@ -168,7 +198,10 @@ async function tickSms(camp: { id: number; ratePerMinute: number }) {
   const batch = Math.max(1, Math.round((camp.ratePerMinute * TICK_MS) / 60_000));
   for (const r of await claim(camp.id, batch)) {
     if (!(await stillSending(camp.id))) {
-      await db.update(R).set({ status: "queued" }).where(and(eq(R.id, r.id), eq(R.status, "sending")));
+      await db
+        .update(R)
+        .set({ status: "queued" })
+        .where(and(eq(R.id, r.id), eq(R.status, "sending")));
       continue;
     }
     const res = await sendSms(r.phone, r.message);
@@ -214,13 +247,53 @@ async function tickWhatsapp(camp: { id: number; workspaceId: number; minDelaySec
 
   // Nothing was sent to a number that isn't on WhatsApp, so no need to wait the full gap.
   const gap = res.result === "not_on_whatsapp" ? 3 : camp.minDelaySec + Math.random() * Math.max(0, camp.maxDelaySec - camp.minDelaySec);
-  await db.update(C).set({ nextSendAt: new Date(Date.now() + gap * 1000) }).where(eq(C.id, camp.id));
+  await db
+    .update(C)
+    .set({ nextSendAt: new Date(Date.now() + gap * 1000) })
+    .where(eq(C.id, camp.id));
+}
+
+/** Emails sent today from one sender, across all its campaigns. */
+export async function emailsSentToday(senderId: number) {
+  const { startOfDay } = dhakaNow();
+  const [{ n }] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(R)
+    .innerJoin(C, eq(C.id, R.campaignId))
+    .where(and(eq(C.senderId, senderId), eq(R.status, "sent"), gte(R.sentAt, startOfDay)));
+  return n;
+}
+
+/** One email per due time with a random gap, capped per sender per day. */
+async function tickEmail(camp: { id: number; senderId: number | null; minDelaySec: number; maxDelaySec: number; nextSendAt: Date | null }) {
+  const now = new Date();
+  if (camp.nextSendAt && camp.nextSendAt > now) return;
+  const [sender] = camp.senderId ? await db.select().from(schema.emailSenders).where(eq(schema.emailSenders.id, camp.senderId)).limit(1) : [];
+  if (!sender) {
+    await db.update(C).set({ status: "paused", lastError: "The email sender was removed — pick another sender" }).where(eq(C.id, camp.id));
+    return;
+  }
+  if ((await emailsSentToday(sender.id)) >= sender.dailyLimit) return;
+
+  const [r] = await claim(camp.id, 1);
+  if (!r) return;
+  const res = await sendEmail(sender, { to: r.phone, subject: r.subject ?? "", text: r.message, unsubscribeUrl: unsubscribeUrl(r.tracking_code) });
+  if (res.ok) await markSent(camp.id, r, "email");
+  else if (res.fatal) return pause(camp.id, r.id, res.info);
+  else await markFailed(camp.id, r.id, res.code, res.info);
+
+  const gap = camp.minDelaySec + Math.random() * Math.max(0, camp.maxDelaySec - camp.minDelaySec);
+  await db
+    .update(C)
+    .set({ nextSendAt: new Date(Date.now() + gap * 1000) })
+    .where(eq(C.id, camp.id));
 }
 
 async function tick() {
   const active = await db.select().from(C).where(eq(C.status, "sending"));
   for (const camp of active) {
-    if (camp.channel === "whatsapp") await tickWhatsapp(camp);
+    if (camp.channel === "email") await tickEmail(camp);
+    else if (camp.channel === "whatsapp") await tickWhatsapp(camp);
     else await tickSms(camp);
     await finishIfEmpty(camp.id);
   }

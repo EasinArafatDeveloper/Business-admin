@@ -52,7 +52,11 @@ function cellText(v: unknown): string {
   if (v instanceof Date) return v.toISOString();
   if (typeof v === "object") {
     const o = v as { text?: unknown; result?: unknown; richText?: { text: string }[]; hyperlink?: string };
-    if (o.richText) return o.richText.map((r) => r.text).join("").trim();
+    if (o.richText)
+      return o.richText
+        .map((r) => r.text)
+        .join("")
+        .trim();
     if (o.text != null) return cellText(o.text);
     if (o.result != null) return cellText(o.result);
     if (o.hyperlink) return o.hyperlink;
@@ -108,10 +112,7 @@ const UPSERT_SET: Record<string, SQL> = {
 type Counts = { processed: number; inserted: number; updated: number; skipped: number };
 
 /** Imports one worksheet if it is a lead sheet. Returns true if it was. Always reads the sheet to the end. */
-async function importSheet(
-  ws: AsyncIterable<unknown> & { name?: string },
-  ctx: { importId: number; workspaceId: number; counts: Counts; skip: boolean }
-) {
+async function importSheet(ws: AsyncIterable<unknown> & { name?: string }, ctx: { importId: number; workspaceId: number; counts: Counts; skip: boolean }) {
   const { importId, workspaceId, counts } = ctx;
   let map: ([Field, Kind] | undefined)[] | null = null;
   let isLeadSheet = false;
@@ -196,7 +197,14 @@ export async function runImport(importId: number, workspaceId: number, filePath:
       }
     }
     if (!imported) throw new Error("No sheet with a 'Page Link' or 'Page Name' column was found.");
-    await setProgress(importId, { status: "done", total: counts.processed, inserted: counts.inserted, updated: counts.updated, skipped: counts.skipped, finishedAt: new Date() });
+    await setProgress(importId, {
+      status: "done",
+      total: counts.processed,
+      inserted: counts.inserted,
+      updated: counts.updated,
+      skipped: counts.skipped,
+      finishedAt: new Date()
+    });
   } catch (e) {
     await setProgress(importId, {
       status: "failed",

@@ -136,8 +136,14 @@ export async function handleHit(code: string, meta: HitMeta) {
   if (bot.isBot) {
     await db.insert(E).values({ ...base, isBot: true, reason: bot.reason });
     await Promise.all([
-      db.update(R).set({ botClickCount: sql`${R.botClickCount} + 1` }).where(eq(R.id, row.id)),
-      db.update(C).set({ botClicks: sql`${C.botClicks} + 1` }).where(eq(C.id, row.campaignId))
+      db
+        .update(R)
+        .set({ botClickCount: sql`${R.botClickCount} + 1` })
+        .where(eq(R.id, row.id)),
+      db
+        .update(C)
+        .set({ botClicks: sql`${C.botClicks} + 1` })
+        .where(eq(C.id, row.campaignId))
     ]);
     return { destination, html: null as string | null };
   }
@@ -216,4 +222,3 @@ export async function verifyHuman(token: string, clientMeta: Record<string, unkn
   }
   return true;
 }
-

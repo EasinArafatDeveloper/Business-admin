@@ -36,6 +36,13 @@
       "when": 1793873896701,
       "tag": "0004_inbox_threads",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793879566631,
+      "tag": "0005_email_channel",
+      "breakpoints": true
     }
   ]
 }

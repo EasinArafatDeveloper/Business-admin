@@ -14,7 +14,8 @@ export const metadata = { title: "Campaigns" };
 const CHANNEL_TABS = [
   ["all", "All channels"],
   ["sms", "SMS"],
-  ["whatsapp", "WhatsApp"]
+  ["whatsapp", "WhatsApp"],
+  ["email", "Email"]
 ] as const;
 const STATUS_TABS = [
   ["all", "Any status", null],
@@ -67,7 +68,7 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campai
     return `/campaigns${p.size ? `?${p}` : ""}`;
   };
 
-  const { sms, whatsapp: wa } = health;
+  const { sms, whatsapp: wa, email } = health;
   const waOpen = wa.status.state === "open";
   const kpis = [
     { label: "Messages sent", value: nf.format(totals.sent), icon: Send },
@@ -86,7 +87,7 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campai
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Campaigns</h1>
-          <p className="mt-1 text-sm text-muted">Every SMS and WhatsApp campaign in one place. Only real human clicks are counted.</p>
+          <p className="mt-1 text-sm text-muted">Every SMS, WhatsApp and email campaign in one place. Only real human clicks are counted.</p>
         </div>
         <Link
           href="/campaigns/new"
@@ -147,15 +148,39 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campai
           </Card>
         </Link>
         <Link href="/channels#email">
-          <Card className="h-full border-dashed p-4 transition-colors hover:border-line-strong">
+          <Card className={cn("h-full p-4 transition-colors hover:border-line-strong", email.senders.length === 0 && "border-dashed")}>
             <div className="flex items-center gap-3">
               <ChannelIcon channel="email" />
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium">Email</div>
-                <Health tone="off">Coming next</Health>
+                {email.senders.length === 0 ? (
+                  <Health tone="off">Add a sender</Health>
+                ) : (
+                  <Health tone={email.senders.some((x) => x.lastError) ? "warn" : "ok"}>
+                    <span className="truncate">{email.senders[0].fromEmail}</span>
+                  </Health>
+                )}
               </div>
-              <ArrowUpRight className="h-4 w-4 text-muted-2" />
+              {email.senders.length === 0 ? (
+                <ArrowUpRight className="h-4 w-4 text-muted-2" />
+              ) : (
+                <div className="text-right">
+                  <div className="text-lg font-semibold">
+                    {email.sentToday}
+                    <span className="text-sm font-normal text-muted-2">/{email.dailyLimit}</span>
+                  </div>
+                  <div className="text-[11px] text-muted-2">sent today</div>
+                </div>
+              )}
             </div>
+            {email.senders.length > 0 && (
+              <div className="mt-3 h-1 overflow-hidden rounded-full bg-surface-2">
+                <div
+                  className="h-full rounded-full bg-[#f59e0b]"
+                  style={{ width: `${Math.min(100, (email.sentToday / Math.max(1, email.dailyLimit)) * 100)}%` }}
+                />
+              </div>
+            )}
           </Card>
         </Link>
       </div>
@@ -235,7 +260,10 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campai
                     <span>{Math.round(pct)}%</span>
                   </div>
                   <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-2">
-                    <div className={cn("h-full rounded-full", c.channel === "whatsapp" ? "bg-[#25d366]" : "bg-accent")} style={{ width: `${pct}%` }} />
+                    <div
+                      className={cn("h-full rounded-full", c.channel === "whatsapp" ? "bg-[#25d366]" : c.channel === "email" ? "bg-[#f59e0b]" : "bg-accent")}
+                      style={{ width: `${pct}%` }}
+                    />
                   </div>
                 </div>
                 <Metric label="Clicks" value={nf.format(c.humanClicks)} />
