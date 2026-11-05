@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Building2, KeyRound, MonitorSmartphone, UserRound, Users, type LucideIcon } from "lucide-react";
+import { Bot, Building2, KeyRound, MonitorSmartphone, UserRound, Users, type LucideIcon } from "lucide-react";
+import { CreateKey, RevokeKey } from "@/components/ai/ai-access";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { PERMISSIONS, ROLES, can } from "@/lib/permissions";
@@ -18,6 +19,7 @@ export const metadata = { title: "Settings" };
 const ALL_TABS: { key: string; label: string; desc: string; icon: LucideIcon; admin?: boolean }[] = [
   { key: "account", label: "Account", desc: "Your name and email", icon: UserRound },
   { key: "team", label: "Team", desc: "Invite people, set access", icon: Users, admin: true },
+  { key: "ai", label: "AI access", desc: "Connect Claude, Cursor…", icon: Bot },
   { key: "business", label: "Business & invoices", desc: "Invoice details, bKash", icon: Building2, admin: true },
   { key: "password", label: "Password", desc: "Change your password", icon: KeyRound },
   { key: "devices", label: "Devices", desc: "Sign out everywhere", icon: MonitorSmartphone }
@@ -43,6 +45,27 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
             .orderBy(desc(V.createdAt))
         ])
       : [[], []];
+  const AK = schema.apiKeys;
+  const AA = schema.aiActions;
+  const [keys, actions] =
+    tab.key === "ai"
+      ? await Promise.all([
+          db
+            .select({ k: AK, owner: U.name })
+            .from(AK)
+            .innerJoin(U, eq(U.id, AK.userId))
+            .where(and(eq(AK.workspaceId, user.workspaceId), isNull(AK.revokedAt), isAdmin ? undefined : eq(AK.userId, user.id)))
+            .orderBy(desc(AK.createdAt)),
+          db
+            .select({ a: AA, who: U.name })
+            .from(AA)
+            .leftJoin(U, eq(U.id, AA.userId))
+            .where(and(eq(AA.workspaceId, user.workspaceId), isAdmin ? undefined : eq(AA.userId, user.id)))
+            .orderBy(desc(AA.createdAt))
+            .limit(30)
+        ])
+      : [[], []];
+  const endpoint = `${new URL((process.env.LINK_BASE_URL ?? "https://admin.scaleupweb.xyz/go").replace(/\/go\/?$/, "")).origin}/api/mcp`;
   const label = (keys: string[]) =>
     PERMISSIONS.filter((p) => keys.includes(p.key))
       .map((p) => p.label)
@@ -183,6 +206,63 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
                     </details>
                   );
                 })}
+              </Card>
+            </div>
+          )}
+
+          {tab.key === "ai" && (
+            <div className="space-y-4">
+              <Card className="p-5 text-sm text-muted">
+                Let an AI assistant (Claude, Cursor…) work with this admin: ask “which leads replied today?”, “draft a WhatsApp campaign for Hot fashion leads”,
+                or “make an invoice for Sign of Modesty”. A key can only do what <b className="text-fg">you</b> can do. AI never sends campaigns or messages —
+                it makes drafts you review and send. Everything it does is logged below.
+              </Card>
+              <CreateKey endpoint={endpoint} />
+
+              <Card className="divide-y divide-line">
+                <div className="px-5 py-3 text-sm font-medium">Active keys ({keys.length})</div>
+                {keys.length === 0 && <p className="px-5 py-6 text-sm text-muted-2">No keys yet.</p>}
+                {keys.map(({ k, owner }) => (
+                  <div key={k.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+                    <div className="min-w-0">
+                      <div className="font-medium">
+                        {k.name}{" "}
+                        <span
+                          className={`ml-1 rounded-full px-2 py-0.5 text-[11px] ${k.scope === "write" ? "bg-warning/15 text-warning" : "bg-surface-2 text-muted"}`}
+                        >
+                          {k.scope === "write" ? "read + drafts" : "read only"}
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-2">
+                        <code>{k.prefix}…</code>
+                        {isAdmin && ` · ${owner}`} · created {timeAgo(k.createdAt)} · {k.lastUsedAt ? `used ${timeAgo(k.lastUsedAt)}` : "never used"}
+                      </div>
+                    </div>
+                    <RevokeKey id={k.id} name={k.name} />
+                  </div>
+                ))}
+              </Card>
+
+              <Card>
+                <div className="border-b border-line px-5 py-3 text-sm font-medium">What the AI did (latest 30)</div>
+                {actions.length === 0 ? (
+                  <p className="px-5 py-6 text-sm text-muted-2">Nothing yet.</p>
+                ) : (
+                  <ul className="divide-y divide-line text-sm">
+                    {actions.map(({ a, who }) => (
+                      <li key={a.id} className="flex flex-wrap items-start justify-between gap-2 px-5 py-2.5">
+                        <span className="min-w-0">
+                          <span className={`font-mono text-xs ${a.ok ? "text-accent-soft" : "text-danger"}`}>{a.tool}</span>
+                          <span className="ml-2 text-xs text-muted-2">{JSON.stringify(a.input).slice(0, 120)}</span>
+                        </span>
+                        <span className="text-xs text-muted-2">
+                          {isAdmin && who ? `${who} · ` : ""}
+                          {timeAgo(a.createdAt)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </Card>
             </div>
           )}

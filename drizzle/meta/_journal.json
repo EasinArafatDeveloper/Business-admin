@@ -71,6 +71,13 @@
       "when": 1793884621507,
       "tag": "0009_team",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793885599635,
+      "tag": "0010_ai_access",
+      "breakpoints": true
     }
   ]
 }

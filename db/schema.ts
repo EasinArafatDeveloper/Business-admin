@@ -508,3 +508,54 @@ export const invites = pgTable(
 );
 
 export type Invite = typeof invites.$inferSelect;
+
+/* ---------------------------------------------------------------- AI access (MCP) */
+
+/**
+ * Personal API keys for connecting AI assistants (Claude, Cursor…) over MCP.
+ * A key acts as its owner: same section access, and "read" keys can't change anything.
+ * Only a SHA-256 hash is stored; the key itself is shown once when created.
+ */
+export const apiKeys = pgTable(
+  "api_keys",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** First characters, to recognise the key in the list. */
+    prefix: text("prefix").notNull(),
+    keyHash: text("key_hash").notNull().unique(),
+    /** read | write */
+    scope: text("scope").notNull().default("read"),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("api_keys_user_idx").on(t.userId)]
+);
+
+/** Every tool an AI ran, with what it asked for — so you can always see what it did. */
+export const aiActions = pgTable(
+  "ai_actions",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    keyId: integer("key_id").references(() => apiKeys.id, { onDelete: "set null" }),
+    tool: text("tool").notNull(),
+    input: jsonb("input").$type<Record<string, unknown>>(),
+    ok: boolean("ok").notNull(),
+    summary: text("summary"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("ai_actions_ws_idx").on(t.workspaceId, t.createdAt)]
+);
+
+export type ApiKey = typeof apiKeys.$inferSelect;
