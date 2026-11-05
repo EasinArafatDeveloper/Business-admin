@@ -5,14 +5,14 @@ import { join } from "node:path";
 import { NextResponse } from "next/server";
 import { desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { getCurrentUser } from "@/lib/auth";
+import { apiUser } from "@/lib/auth";
 import { runImport } from "@/lib/import-leads";
 
 const MAX_BYTES = 60 * 1024 * 1024; // 60 MB
 
 /** Upload an .xlsx → saved to a temp file → imported in the background. Returns the import id to poll. */
 export async function POST(request: Request) {
-  const user = await getCurrentUser();
+  const user = await apiUser("leads");
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const form = await request.formData();
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
 
 /** Progress of one import (?id=) or the 10 most recent imports. */
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
+  const user = await apiUser("leads");
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const id = Number(new URL(request.url).searchParams.get("id"));

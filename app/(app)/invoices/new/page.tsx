@@ -2,7 +2,7 @@ import Link from "next/link";
 import { asc, eq } from "drizzle-orm";
 import { ArrowLeft } from "lucide-react";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { getBilling } from "@/lib/billing";
 import { Card } from "@/components/ui";
 import { InvoiceEditor } from "@/components/billing/forms";
@@ -12,7 +12,7 @@ export const metadata = { title: "New invoice" };
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
 export default async function NewInvoicePage({ searchParams }: PageProps<"/invoices/new">) {
-  const user = await requireUser();
+  const user = await requireAccess("invoices");
   const sp = await searchParams;
   const K = schema.clients;
   const [clients, { billing }] = await Promise.all([

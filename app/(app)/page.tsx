@@ -4,7 +4,7 @@ import { ArrowUpRight, FileSpreadsheet, Globe, Mail, MessageCircle, Phone } from
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { db, schema } from "@/db";
 import { LEAD_STATUSES } from "@/lib/constants";
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { nf, timeAgo } from "@/lib/utils";
 import { Card, StatusBadge } from "@/components/ui";
 
@@ -13,7 +13,7 @@ export const metadata = { title: "Dashboard" };
 const L = schema.leads;
 
 export default async function DashboardPage() {
-  const user = await requireUser();
+  const user = await requireAccess("leads");
   const ws = eq(L.workspaceId, user.workspaceId);
   const filled = (c: AnyPgColumn) => sql<number>`count(*) filter (where ${c} is not null and ${c} <> '')::int`;
 

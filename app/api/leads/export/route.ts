@@ -1,6 +1,6 @@
 import { asc } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { getCurrentUser } from "@/lib/auth";
+import { apiUser } from "@/lib/auth";
 import { parseFilters, whereFor } from "@/lib/leads-query";
 
 const L = schema.leads;
@@ -34,7 +34,7 @@ const csvCell = (v: unknown) => {
 
 /** CSV of every lead matching the current filters (same URL params as /leads). */
 export async function GET(request: Request) {
-  const user = await getCurrentUser();
+  const user = await apiUser("leads");
   if (!user) return new Response("Not signed in", { status: 401 });
 
   const filters = parseFilters(Object.fromEntries(new URL(request.url).searchParams.entries()));

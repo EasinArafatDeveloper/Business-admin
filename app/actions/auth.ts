@@ -32,6 +32,7 @@ export async function login(_: FormState, formData: FormData): Promise<FormState
     recordFailure(ip);
     return { error: "Wrong email or password." };
   }
+  if (user.status !== "active") return { error: "This account is turned off. Ask the owner to turn it back on." };
 
   clearFailures(ip);
   await db.update(schema.users).set({ lastLoginAt: new Date() }).where(eq(schema.users.id, user.id));

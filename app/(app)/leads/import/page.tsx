@@ -1,10 +1,10 @@
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { ImportUploader } from "@/components/leads/import-uploader";
 
 export const metadata = { title: "Import leads" };
 
 export default async function ImportPage() {
-  await requireUser();
+  await requireAccess("leads");
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>

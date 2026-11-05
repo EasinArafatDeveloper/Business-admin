@@ -4,13 +4,13 @@ import { revalidatePath } from "next/cache";
 import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { LEAD_STATUSES, type LeadStatus } from "@/lib/constants";
-import { requireUser } from "@/lib/auth";
+import { requireAction } from "@/lib/auth";
 
 const L = schema.leads;
 const isStatus = (s: string): s is LeadStatus => (LEAD_STATUSES as readonly string[]).includes(s);
 
 export async function setLeadStatus(leadId: number, status: string) {
-  const user = await requireUser();
+  const user = await requireAction("leads");
   if (!isStatus(status)) return;
   const [before] = await db
     .select({ status: L.status })
@@ -35,7 +35,7 @@ export async function setLeadStatus(leadId: number, status: string) {
 }
 
 export async function setLeadsStatus(leadIds: number[], status: string) {
-  const user = await requireUser();
+  const user = await requireAction("leads");
   if (!isStatus(status) || leadIds.length === 0) return { updated: 0 };
   const ids = leadIds.slice(0, 1000).filter((n) => Number.isInteger(n));
   const changed = await db
@@ -53,7 +53,7 @@ export async function setLeadsStatus(leadIds: number[], status: string) {
 }
 
 export async function addLeadNote(leadId: number, formData: FormData) {
-  const user = await requireUser();
+  const user = await requireAction("leads");
   const body = String(formData.get("body") ?? "")
     .trim()
     .slice(0, 4000);
@@ -71,7 +71,7 @@ export async function addLeadNote(leadId: number, formData: FormData) {
 
 /** "Don't SMS me" — excluded from every future campaign. */
 export async function setSmsOptOut(leadId: number, optOut: boolean, channel: "sms" | "whatsapp" | "email" = "sms") {
-  const user = await requireUser();
+  const user = await requireAction("leads");
   const changed = await db
     .update(L)
     .set({ ...(channel === "whatsapp" ? { waOptOut: optOut } : channel === "email" ? { emailOptOut: optOut } : { smsOptOut: optOut }), updatedAt: new Date() })

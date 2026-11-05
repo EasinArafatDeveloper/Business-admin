@@ -58,6 +58,11 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   role: text("role").notNull().default("owner"), // owner | admin | member
+  /** Sections a member can open (see lib/permissions.ts). Owners and admins can open everything. */
+  permissions: jsonb("permissions").$type<string[]>().notNull().default([]),
+  /** active | disabled — disabled people cannot sign in. */
+  status: text("status").notNull().default("active"),
+  invitedBy: integer("invited_by"),
   /** Bumped on password change / "sign out everywhere" — invalidates old session cookies. */
   sessionVersion: integer("session_version").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -480,3 +485,26 @@ export type InvoiceSubmission = typeof invoiceSubmissions.$inferSelect;
 export type Invoice = typeof invoices.$inferSelect;
 export type InvoiceItem = typeof invoiceItems.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
+
+/** A pending invitation to join a workspace. The link holds a random token; only its hash is stored. */
+export const invites = pgTable(
+  "invites",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    name: text("name"),
+    role: text("role").notNull().default("member"),
+    permissions: jsonb("permissions").$type<string[]>().notNull().default([]),
+    tokenHash: text("token_hash").notNull().unique(),
+    invitedBy: integer("invited_by").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("invites_ws_idx").on(t.workspaceId, t.createdAt)]
+);
+
+export type Invite = typeof invites.$inferSelect;

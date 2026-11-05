@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowLeft, Check, SlidersHorizontal, TriangleAlert } from "lucide-react";
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { buildAudience } from "@/lib/campaigns";
 import { getChannelHealth } from "@/lib/channels";
 import { filtersToQuery, parseFilters } from "@/lib/leads-query";
@@ -39,7 +39,7 @@ const PRESETS: [string, string, Record<string, string>][] = [
 ];
 
 export default async function NewCampaignPage({ searchParams }: PageProps<"/campaigns/new">) {
-  const user = await requireUser();
+  const user = await requireAccess("campaigns");
   const sp = await searchParams;
   const channel = sp.channel === "whatsapp" || sp.channel === "email" ? sp.channel : "sms";
   const filters = parseFilters(sp);

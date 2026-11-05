@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireAction } from "@/lib/auth";
 import { createCampaignWithRecipients } from "@/lib/campaigns";
 import { parseFilters } from "@/lib/leads-query";
 import { normalizeBdMobile, renderTemplate } from "@/lib/sms-text";
@@ -41,7 +41,7 @@ const createSchema = z.object({
 });
 
 export async function createCampaign(_: ActionState, formData: FormData): Promise<ActionState> {
-  const user = await requireUser();
+  const user = await requireAction("campaigns");
   const parsed = createSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
   const d = parsed.data;
@@ -86,7 +86,7 @@ export async function createCampaign(_: ActionState, formData: FormData): Promis
 }
 
 async function owned(id: number) {
-  const user = await requireUser();
+  const user = await requireAction("campaigns");
   const [c] = await db
     .select()
     .from(C)

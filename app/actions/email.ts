@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireAction } from "@/lib/auth";
 import { SMTP_PRESETS, normalizeEmail, sendEmail, verifySender } from "@/lib/email";
 import { encryptSecret } from "@/lib/secrets";
 import { IMAP_FOR_SMTP, syncSender } from "@/lib/email-inbox";
@@ -26,7 +26,7 @@ const addSchema = z.object({
 });
 
 export async function addSender(_: SenderState, formData: FormData): Promise<SenderState> {
-  const user = await requireUser();
+  const user = await requireAction("channels");
   const parsed = addSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
   const d = parsed.data;
@@ -57,7 +57,7 @@ export async function addSender(_: SenderState, formData: FormData): Promise<Sen
 
 /** Turns reply sync on/off; turning it on also checks the mailbox right away. */
 export async function setReplySync(id: number, on: boolean) {
-  const user = await requireUser();
+  const user = await requireAction("channels");
   const [s] = await db.select().from(S).where(and(eq(S.id, id), eq(S.workspaceId, user.workspaceId))).limit(1);
   if (!s) return;
   const imapHost = on ? (IMAP_FOR_SMTP[s.smtpHost] ?? null) : null;
@@ -68,13 +68,13 @@ export async function setReplySync(id: number, on: boolean) {
 }
 
 export async function removeSender(id: number) {
-  const user = await requireUser();
+  const user = await requireAction("channels");
   await db.delete(S).where(and(eq(S.id, id), eq(S.workspaceId, user.workspaceId)));
   revalidatePath("/channels");
 }
 
 export async function testSender(id: number, _: SenderState, formData: FormData): Promise<SenderState> {
-  const user = await requireUser();
+  const user = await requireAction("channels");
   const to = normalizeEmail(String(formData.get("to") ?? ""));
   if (!to) return { error: "Enter an email address" };
   const [sender] = await db

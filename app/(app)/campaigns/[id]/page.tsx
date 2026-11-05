@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { and, desc, eq, gt, sql } from "drizzle-orm";
 import { ArrowLeft, TriangleAlert } from "lucide-react";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { smsRate } from "@/lib/sms";
 import { cn, nf, timeAgo } from "@/lib/utils";
 import { Card } from "@/components/ui";
@@ -22,7 +22,7 @@ const TABS = [
 ] as const;
 
 export default async function CampaignPage({ params, searchParams }: PageProps<"/campaigns/[id]">) {
-  const user = await requireUser();
+  const user = await requireAccess("campaigns");
   const id = Number((await params).id);
   if (!Number.isInteger(id)) notFound();
   const tab = String((await searchParams).tab ?? "all");

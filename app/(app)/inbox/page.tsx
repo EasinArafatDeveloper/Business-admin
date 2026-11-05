@@ -2,7 +2,7 @@ import Link from "next/link";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { ArrowLeft, Inbox as InboxIcon } from "lucide-react";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { cn, timeAgo } from "@/lib/utils";
 import { Card, StatusBadge } from "@/components/ui";
 import { ChannelIcon } from "@/components/campaigns/channel";
@@ -31,7 +31,7 @@ type Thread = {
 };
 
 export default async function InboxPage({ searchParams }: PageProps<"/inbox">) {
-  const user = await requireUser();
+  const user = await requireAccess("inbox");
   const sp = await searchParams;
   const filter = FILTERS.find(([k]) => k === sp.filter)?.[0] ?? "all";
   // A thread is a phone number (WhatsApp) or an email address.

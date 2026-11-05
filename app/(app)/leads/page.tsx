@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, FileSpreadsheet, Megaphone } from "lucide-react";
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { PAGE_SIZE, filterOptions, filtersToQuery, findLeads, parseFilters } from "@/lib/leads-query";
 import { FilterBar } from "@/components/leads/filter-bar";
 import { LeadsTable } from "@/components/leads/leads-table";
@@ -9,7 +9,7 @@ import { nf } from "@/lib/utils";
 export const metadata = { title: "Leads" };
 
 export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
-  const user = await requireUser();
+  const user = await requireAccess("leads");
   const filters = parseFilters(await searchParams);
   const [{ rows, total }, options] = await Promise.all([findLeads(user.workspaceId, filters), filterOptions(user.workspaceId)]);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));

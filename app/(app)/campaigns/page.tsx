@@ -2,7 +2,7 @@ import Link from "next/link";
 import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { ArrowUpRight, LayoutGrid, Megaphone, Plus, TriangleAlert } from "lucide-react";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { getChannelHealth } from "@/lib/channels";
 import { cn, nf, timeAgo } from "@/lib/utils";
 import { Card } from "@/components/ui";
@@ -24,7 +24,7 @@ const DOT: Record<Tone, string> = { ok: "bg-success", warn: "bg-warning", down: 
 const BAR: Record<string, string> = { whatsapp: "bg-[#25d366]", email: "bg-[#f59e0b]", sms: "bg-accent" };
 
 export default async function CampaignsPage({ searchParams }: PageProps<"/campaigns">) {
-  const user = await requireUser();
+  const user = await requireAccess("campaigns");
   const sp = await searchParams;
   const channel: ChannelKey | "all" = CHANNEL_KEYS.find((k) => k === sp.channel) ?? "all";
   const status = STATUS_TABS.find(([k]) => k === sp.status) ?? STATUS_TABS[0];

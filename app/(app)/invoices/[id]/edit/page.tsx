@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
 import { ArrowLeft } from "lucide-react";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { InvoiceEditor } from "@/components/billing/forms";
 
 export const metadata = { title: "Edit invoice" };
@@ -12,7 +12,7 @@ const ymd = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
 const amount = (p: number) => (p === 0 ? "" : String(p / 100));
 
 export default async function EditInvoicePage({ params }: PageProps<"/invoices/[id]/edit">) {
-  const user = await requireUser();
+  const user = await requireAccess("invoices");
   const id = Number((await params).id);
   if (!Number.isInteger(id)) notFound();
   const I = schema.invoices;

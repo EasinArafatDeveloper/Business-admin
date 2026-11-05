@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, asc, desc, eq, isNotNull } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireAction } from "@/lib/auth";
 import { sendEmail } from "@/lib/email";
 import { waSend } from "@/lib/wa";
 
@@ -14,7 +14,7 @@ const reSubject = (s: string | null) => (s ? (/^re:/i.test(s) ? s : `Re: ${s}`) 
 
 /** Replies to a conversation on its own channel (WhatsApp number, or the email address it came to) and keeps it in the thread. */
 export async function replyToThread(sender: string, _: ReplyState, formData: FormData): Promise<ReplyState> {
-  const user = await requireUser();
+  const user = await requireAction("inbox");
   const text = String(formData.get("text") ?? "").trim();
   if (!text) return { error: "Write a message first" };
   if (text.length > 5000) return { error: "Message is too long (5000 characters max)" };

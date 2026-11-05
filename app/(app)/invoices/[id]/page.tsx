@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { ArrowLeft, Eye, Pencil } from "lucide-react";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { getBilling, invoiceUrl } from "@/lib/billing";
 import { PAYMENT_METHODS, fmtDate, invoiceState, taka } from "@/lib/money";
 import { timeAgo } from "@/lib/utils";
@@ -18,7 +18,7 @@ export async function generateMetadata({ params }: PageProps<"/invoices/[id]">) 
 }
 
 export default async function InvoicePage({ params }: PageProps<"/invoices/[id]">) {
-  const user = await requireUser();
+  const user = await requireAccess("invoices");
   const id = Number((await params).id);
   if (!Number.isInteger(id)) notFound();
   const I = schema.invoices;

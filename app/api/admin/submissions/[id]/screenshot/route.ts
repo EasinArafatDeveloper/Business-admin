@@ -1,10 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { getCurrentUser } from "@/lib/auth";
+import { apiUser } from "@/lib/auth";
 
 /** The client's payment screenshot — signed-in admins of the same workspace only. */
 export async function GET(_: Request, ctx: RouteContext<"/api/admin/submissions/[id]/screenshot">) {
-  const user = await getCurrentUser();
+  const user = await apiUser("invoices");
   if (!user) return new Response("Unauthorized", { status: 401 });
   const id = Number((await ctx.params).id);
   const S = schema.invoiceSubmissions;

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { FileText, Plus } from "lucide-react";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { type InvoiceState, fmtDate, invoiceState, taka } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui";
@@ -20,7 +20,7 @@ const TABS: { key: string; label: string; states: InvoiceState[] | null }[] = [
 ];
 
 export default async function InvoicesPage({ searchParams }: PageProps<"/invoices">) {
-  const user = await requireUser();
+  const user = await requireAccess("invoices");
   const sp = await searchParams;
   const tab = TABS.find((t) => t.key === sp.tab) ?? TABS[0];
   const I = schema.invoices;

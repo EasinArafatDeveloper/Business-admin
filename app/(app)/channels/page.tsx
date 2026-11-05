@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowUpRight, Check, ShieldCheck } from "lucide-react";
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { getChannelHealth } from "@/lib/channels";
 import { cn, nf } from "@/lib/utils";
 import { Card } from "@/components/ui";
@@ -22,7 +22,7 @@ const DESC: Record<Tab, string> = {
 };
 
 export default async function ChannelsPage({ searchParams }: PageProps<"/channels">) {
-  const user = await requireUser();
+  const user = await requireAccess("channels");
   const sp = await searchParams;
   const tab: Tab = TABS.find((t) => t === sp.tab) ?? "whatsapp";
   const { sms, whatsapp: wa, email } = await getChannelHealth(user.workspaceId);

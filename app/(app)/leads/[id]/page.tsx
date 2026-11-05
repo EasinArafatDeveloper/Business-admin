@@ -3,11 +3,12 @@ import { notFound } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
 import { ArrowLeft, ExternalLink, Globe, Mail, Megaphone, MessageCircle, PanelsTopLeft, Phone } from "lucide-react";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { digitsOnly, nf, timeAgo } from "@/lib/utils";
 import { Card, PriorityText } from "@/components/ui";
 import { CopyButton, NoteForm, SmsOptOutToggle, StatusPicker } from "@/components/leads/lead-controls";
 import { ConvertLeadButton } from "@/components/billing/forms";
+import { can } from "@/lib/permissions";
 
 export async function generateMetadata({ params }: PageProps<"/leads/[id]">) {
   const { id } = await params;
@@ -15,7 +16,7 @@ export async function generateMetadata({ params }: PageProps<"/leads/[id]">) {
 }
 
 export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
-  const user = await requireUser();
+  const user = await requireAccess("leads");
   const id = Number((await params).id);
   if (!Number.isInteger(id)) notFound();
 
@@ -101,7 +102,7 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex items-center gap-2">
-            <ConvertLeadButton leadId={lead.id} existingClientId={client?.id} />
+            {can(user, "clients") && <ConvertLeadButton leadId={lead.id} existingClientId={client?.id} />}
             <StatusPicker leadId={lead.id} status={lead.status} />
           </div>
           <div className="flex gap-1.5">

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { and, desc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { Briefcase, Plus, Search } from "lucide-react";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { taka } from "@/lib/money";
 import { cn, timeAgo } from "@/lib/utils";
 import { Card, inputClass } from "@/components/ui";
@@ -18,7 +18,7 @@ const TABS = [
 ] as const;
 
 export default async function ClientsPage({ searchParams }: PageProps<"/clients">) {
-  const user = await requireUser();
+  const user = await requireAccess("clients");
   const sp = await searchParams;
   const tab = TABS.find(([k]) => k === sp.status)?.[0] ?? "all";
   const q = typeof sp.q === "string" ? sp.q.trim().slice(0, 80) : "";

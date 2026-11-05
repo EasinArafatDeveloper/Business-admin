@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireAction } from "@/lib/auth";
 import { getBilling, invoicePrefix, invoiceUrl, nextInvoiceNumber, publicToken, refreshPaid } from "@/lib/billing";
 import { PAYMENT_METHODS, parseTaka, taka, totals } from "@/lib/money";
 import { normalizeEmail, sendEmail } from "@/lib/email";
@@ -45,7 +45,7 @@ const billingSchema = z.object({
 });
 
 export async function saveBilling(_: FormState, formData: FormData): Promise<FormState> {
-  const user = await requireUser();
+  const user = await requireAction("business");
   const p = billingSchema.safeParse(Object.fromEntries(formData));
   if (!p.success) return { error: p.error.issues[0]?.message };
   const b = Object.fromEntries(Object.entries(p.data).filter(([, v]) => v !== null));
@@ -68,7 +68,7 @@ const clientSchema = z.object({
 });
 
 export async function saveClient(id: number | null, _: FormState, formData: FormData): Promise<FormState> {
-  const user = await requireUser();
+  const user = await requireAction("clients");
   const p = clientSchema.safeParse(Object.fromEntries(formData));
   if (!p.success) return { error: p.error.issues[0]?.message };
   const d = p.data;
@@ -90,7 +90,7 @@ export async function saveClient(id: number | null, _: FormState, formData: Form
 
 /** Turns a lead into a client (or opens the existing one) and marks the lead Won. */
 export async function convertLead(leadId: number) {
-  const user = await requireUser();
+  const user = await requireAction("clients");
   const L = schema.leads;
   const [lead] = await db
     .select()
@@ -142,7 +142,7 @@ async function ownedInvoice(id: number, workspaceId: number) {
 
 /** Creates or updates an invoice with its lines. Paid and void invoices are locked. */
 export async function saveInvoice(id: number | null, _: FormState, formData: FormData): Promise<FormState> {
-  const user = await requireUser();
+  const user = await requireAction("invoices");
   const clientId = Number(formData.get("clientId"));
   const [client] = await db
     .select({ id: K.id })
@@ -223,7 +223,7 @@ export async function saveInvoice(id: number | null, _: FormState, formData: For
 }
 
 export async function setInvoiceStatus(id: number, status: "sent" | "void" | "draft") {
-  const user = await requireUser();
+  const user = await requireAction("invoices");
   const inv = await ownedInvoice(id, user.workspaceId);
   if (!inv) return;
   if (status === "draft" && inv.amountPaid > 0) return;
@@ -236,7 +236,7 @@ export async function setInvoiceStatus(id: number, status: "sent" | "void" | "dr
 }
 
 export async function deleteDraft(id: number) {
-  const user = await requireUser();
+  const user = await requireAction("invoices");
   const inv = await ownedInvoice(id, user.workspaceId);
   if (!inv || inv.status !== "draft" || inv.amountPaid > 0) return;
   await db.delete(I).where(eq(I.id, id));
@@ -245,7 +245,7 @@ export async function deleteDraft(id: number) {
 }
 
 export async function duplicateInvoice(id: number) {
-  const user = await requireUser();
+  const user = await requireAction("invoices");
   const inv = await ownedInvoice(id, user.workspaceId);
   if (!inv) return;
   const items = await db.select().from(schema.invoiceItems).where(eq(schema.invoiceItems.invoiceId, id)).orderBy(asc(schema.invoiceItems.position));
@@ -292,7 +292,7 @@ const paymentSchema = z.object({
 });
 
 export async function recordPayment(invoiceId: number, _: FormState, formData: FormData): Promise<FormState> {
-  const user = await requireUser();
+  const user = await requireAction("invoices");
   const inv = await ownedInvoice(invoiceId, user.workspaceId);
   if (!inv) return { error: "Invoice not found" };
   if (inv.status === "void") return { error: "This invoice is void" };
@@ -319,7 +319,7 @@ export async function recordPayment(invoiceId: number, _: FormState, formData: F
 }
 
 export async function deletePayment(paymentId: number) {
-  const user = await requireUser();
+  const user = await requireAction("invoices");
   const P = schema.payments;
   const [pay] = await db
     .delete(P)
@@ -348,7 +348,7 @@ const message = (name: string, business: string, number: string, due: number, ur
   `\n\nThank you!\n${business}`;
 
 export async function sendInvoice(id: number, channel: "email" | "whatsapp", _: FormState, formData: FormData): Promise<FormState> {
-  const user = await requireUser();
+  const user = await requireAction("invoices");
   const row = await invoiceForSend(id, user.workspaceId);
   if (!row) return { error: "Invoice not found" };
   const { inv, client } = row;
@@ -399,7 +399,7 @@ export async function sendInvoice(id: number, channel: "email" | "whatsapp", _: 
  * Payment → becomes a real payment. Share → the share discount is taken off the invoice.
  */
 export async function reviewSubmission(id: number, decision: "approve" | "reject"): Promise<FormState> {
-  const user = await requireUser();
+  const user = await requireAction("invoices");
   const S = schema.invoiceSubmissions;
   const [sub] = await db
     .select()

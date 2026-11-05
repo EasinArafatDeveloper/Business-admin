@@ -9,7 +9,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 
 type Item = { href: string; label: string; icon: LucideIcon; soon?: boolean };
 
-const groups: { title?: string; items: Item[] }[] = [
+const GROUPS: { title?: string; items: Item[] }[] = [
   { items: [{ href: "/", label: "Dashboard", icon: LayoutDashboard }] },
   {
     title: "Leads",
@@ -70,8 +70,20 @@ function NavLink({ item, pathname, compact, badge }: { item: Item; pathname: str
   );
 }
 
-export function Sidebar({ userName, workspace, badges = {} }: { userName: string; workspace: string; badges?: Record<string, number> }) {
+export function Sidebar({
+  userName,
+  workspace,
+  badges = {},
+  allowed
+}: {
+  userName: string;
+  workspace: string;
+  badges?: Record<string, number>;
+  /** Links this person may open; others are hidden. */
+  allowed: string[];
+}) {
   const pathname = usePathname();
+  const groups = GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => allowed.includes(i.href)) })).filter((g) => g.items.length > 0);
   return (
     <>
       {/* Desktop */}

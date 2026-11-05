@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
 import { ArrowLeft, FileText, Mail, MessageCircle, Phone, Plus } from "lucide-react";
 import { db, schema } from "@/db";
-import { requireUser } from "@/lib/auth";
+import { requireAccess } from "@/lib/auth";
 import { fmtDate, invoiceState, taka } from "@/lib/money";
 import { cn, digitsOnly } from "@/lib/utils";
 import { Card } from "@/components/ui";
@@ -15,7 +15,7 @@ export async function generateMetadata({ params }: PageProps<"/clients/[id]">) {
 }
 
 export default async function ClientPage({ params, searchParams }: PageProps<"/clients/[id]">) {
-  const user = await requireUser();
+  const user = await requireAccess("clients");
   const id = Number((await params).id);
   if (!Number.isInteger(id)) notFound();
   const editing = (await searchParams).edit === "1";
