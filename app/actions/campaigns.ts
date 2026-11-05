@@ -35,6 +35,7 @@ const createSchema = z.object({
   channel: z.enum(["sms", "whatsapp", "email"]).default("sms"),
   subject: z.string().trim().max(200).optional(),
   senderId: z.coerce.number().int().optional(),
+  usePersonal: z.string().optional(),
   minDelaySec: z.coerce.number().int().min(10).max(600).default(30),
   maxDelaySec: z.coerce.number().int().min(10).max(1200).default(90),
   dailyLimit: z.coerce.number().int().min(10).max(1000).default(150)
@@ -77,7 +78,8 @@ export async function createCampaign(_: ActionState, formData: FormData): Promis
       maxDelaySec: Math.max(d.minDelaySec, d.maxDelaySec),
       dailyLimit: d.dailyLimit,
       subject: d.channel === "email" ? d.subject : undefined,
-      senderId: d.channel === "email" ? d.senderId : undefined
+      senderId: d.channel === "email" ? d.senderId : undefined,
+      usePersonal: d.usePersonal === "on"
     });
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Could not create the campaign" };

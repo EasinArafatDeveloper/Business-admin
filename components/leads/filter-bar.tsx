@@ -8,8 +8,7 @@ import type { FilterOptions } from "@/lib/leads-query";
 import { STATUS_STYLES } from "@/components/ui";
 import { cn, nf } from "@/lib/utils";
 
-const selectClass =
-  "h-9 rounded-xl border border-line-strong bg-ink-alt px-2.5 text-sm text-fg outline-none focus:border-accent max-w-[200px]";
+const selectClass = "h-9 rounded-xl border border-line-strong bg-ink-alt px-2.5 text-sm text-fg outline-none focus:border-accent max-w-[200px]";
 
 const HAS = [
   { key: "whatsapp", label: "WhatsApp" },
@@ -25,7 +24,7 @@ const SOURCE_LABEL: Record<string, string> = {
   manual: "Manual"
 };
 
-export function FilterBar({ options }: { options: FilterOptions }) {
+export function FilterBar({ options, lists = [] }: { options: FilterOptions; lists?: { id: number; name: string }[] }) {
   const router = useRouter();
   const sp = useSearchParams();
   const [pending, startTransition] = useTransition();
@@ -54,7 +53,12 @@ export function FilterBar({ options }: { options: FilterOptions }) {
   }, [q]);
 
   const sel = (key: string, label: string, list: { value: string | null; count: number }[], fmt?: (v: string) => string) => (
-    <select aria-label={label} value={sp.get(key) ?? ""} onChange={(e) => setParam(key, e.target.value)} className={cn(selectClass, sp.get(key) && "border-accent/60")}>
+    <select
+      aria-label={label}
+      value={sp.get(key) ?? ""}
+      onChange={(e) => setParam(key, e.target.value)}
+      className={cn(selectClass, sp.get(key) && "border-accent/60")}
+    >
       <option value="">{label}</option>
       {list.map((o) => (
         <option key={o.value} value={o.value ?? ""}>
@@ -79,7 +83,12 @@ export function FilterBar({ options }: { options: FilterOptions }) {
             className="h-9 w-full rounded-xl border border-line-strong bg-ink-alt pl-9 pr-3 text-sm outline-none focus:border-accent"
           />
         </label>
-        <select aria-label="Sort" value={sp.get("sort") ?? "score"} onChange={(e) => setParam("sort", e.target.value === "score" ? "" : e.target.value)} className={selectClass}>
+        <select
+          aria-label="Sort"
+          value={sp.get("sort") ?? "score"}
+          onChange={(e) => setParam("sort", e.target.value === "score" ? "" : e.target.value)}
+          className={selectClass}
+        >
           <option value="score">Sort: score</option>
           <option value="followers">Sort: followers</option>
           <option value="ads">Sort: active ads</option>
@@ -95,7 +104,27 @@ export function FilterBar({ options }: { options: FilterOptions }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <select aria-label="Status" value={sp.get("status") ?? ""} onChange={(e) => setParam("status", e.target.value)} className={cn(selectClass, sp.get("status") && "border-accent/60")}>
+        {lists.length > 0 && (
+          <select
+            aria-label="Saved list"
+            value={sp.get("list") ?? ""}
+            onChange={(e) => setParam("list", e.target.value)}
+            className={cn(selectClass, sp.get("list") && "border-accent/60")}
+          >
+            <option value="">Saved list</option>
+            {lists.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+        )}
+        <select
+          aria-label="Status"
+          value={sp.get("status") ?? ""}
+          onChange={(e) => setParam("status", e.target.value)}
+          className={cn(selectClass, sp.get("status") && "border-accent/60")}
+        >
           <option value="">Status</option>
           {LEAD_STATUSES.map((s) => (
             <option key={s} value={s}>
@@ -110,18 +139,33 @@ export function FilterBar({ options }: { options: FilterOptions }) {
         {sel("webType", "Website type", options.webType)}
         {sel("platform", "Platform", options.platform)}
         {sel("source", "Source", options.source, (v) => SOURCE_LABEL[v] ?? v)}
-        <select aria-label="Orders via" value={sp.get("orders") ?? ""} onChange={(e) => setParam("orders", e.target.value)} className={cn(selectClass, sp.get("orders") && "border-accent/60")}>
+        <select
+          aria-label="Orders via"
+          value={sp.get("orders") ?? ""}
+          onChange={(e) => setParam("orders", e.target.value)}
+          className={cn(selectClass, sp.get("orders") && "border-accent/60")}
+        >
           <option value="">Orders via</option>
           {["Messenger", "WhatsApp", "Website", "Call", "App"].map((o) => (
             <option key={o}>{o}</option>
           ))}
         </select>
-        <select aria-label="Country" value={sp.get("bd") ?? ""} onChange={(e) => setParam("bd", e.target.value)} className={cn(selectClass, sp.get("bd") && "border-accent/60")}>
+        <select
+          aria-label="Country"
+          value={sp.get("bd") ?? ""}
+          onChange={(e) => setParam("bd", e.target.value)}
+          className={cn(selectClass, sp.get("bd") && "border-accent/60")}
+        >
           <option value="">Country</option>
           <option value="yes">Bangladesh</option>
           <option value="no">Outside / unclear</option>
         </select>
-        <select aria-label="Minimum score" value={sp.get("minScore") ?? ""} onChange={(e) => setParam("minScore", e.target.value)} className={cn(selectClass, sp.get("minScore") && "border-accent/60")}>
+        <select
+          aria-label="Minimum score"
+          value={sp.get("minScore") ?? ""}
+          onChange={(e) => setParam("minScore", e.target.value)}
+          className={cn(selectClass, sp.get("minScore") && "border-accent/60")}
+        >
           <option value="">Min score</option>
           {[40, 50, 60, 70, 80, 90].map((n) => (
             <option key={n} value={n}>
@@ -129,7 +173,12 @@ export function FilterBar({ options }: { options: FilterOptions }) {
             </option>
           ))}
         </select>
-        <select aria-label="Minimum active ads" value={sp.get("minAds") ?? ""} onChange={(e) => setParam("minAds", e.target.value)} className={cn(selectClass, sp.get("minAds") && "border-accent/60")}>
+        <select
+          aria-label="Minimum active ads"
+          value={sp.get("minAds") ?? ""}
+          onChange={(e) => setParam("minAds", e.target.value)}
+          className={cn(selectClass, sp.get("minAds") && "border-accent/60")}
+        >
           <option value="">Min ads</option>
           {[2, 3, 5, 10].map((n) => (
             <option key={n} value={n}>

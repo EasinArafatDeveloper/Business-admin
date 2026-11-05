@@ -21,7 +21,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   ]);
 
   const allowed = [
-    can(user, "leads") && ["/", "/leads", "/leads/import"],
+    can(user, "leads") && ["/", "/leads", "/leads/lists", "/leads/import"],
     can(user, "campaigns") && "/campaigns",
     can(user, "inbox") && "/inbox",
     can(user, "channels") && "/channels",

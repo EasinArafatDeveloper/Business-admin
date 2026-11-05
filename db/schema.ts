@@ -608,3 +608,49 @@ export const oauthTokens = pgTable(
   (t) => [index("oauth_tokens_grant_idx").on(t.grantId)]
 );
 export type OAuthClient = typeof oauthClients.$inferSelect;
+
+/* ---------------------------------------------------------------- saved lead lists */
+
+/** A named, hand-picked (or AI-picked) set of leads — e.g. "Top 50 fashion shops for WhatsApp". */
+export const leadLists = pgTable(
+  "lead_lists",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    /** ai | manual */
+    source: text("source").notNull().default("manual"),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("lead_lists_ws_idx").on(t.workspaceId, t.updatedAt)]
+);
+
+/**
+ * One lead in a list. `message` (and `subject` for email) is that person's own text:
+ * campaigns built from the list send it instead of the shared template.
+ */
+export const leadListItems = pgTable(
+  "lead_list_items",
+  {
+    id: serial("id").primaryKey(),
+    listId: integer("list_id")
+      .notNull()
+      .references(() => leadLists.id, { onDelete: "cascade" }),
+    leadId: integer("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+    /** Why this lead was picked (AI's reasoning or your note). */
+    reason: text("reason"),
+    message: text("message"),
+    subject: text("subject"),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [uniqueIndex("lead_list_items_unique").on(t.listId, t.leadId), index("lead_list_items_lead_idx").on(t.leadId)]
+);
+export type LeadList = typeof leadLists.$inferSelect;

@@ -38,8 +38,24 @@ export async function buildAudience(workspaceId: number, filters: LeadFilters, c
     .orderBy(sql`${L.score} desc nulls last`, asc(L.id))
     .limit(MAX_RECIPIENTS * 2);
 
+  // From a saved list: each lead may have their own message (written by you or the AI).
+  const personal = new Map<number, { message: string | null; subject: string | null }>();
+  if (filters.list !== undefined) {
+    const items = await db
+      .select({ leadId: schema.leadListItems.leadId, message: schema.leadListItems.message, subject: schema.leadListItems.subject })
+      .from(schema.leadListItems)
+      .where(eq(schema.leadListItems.listId, filters.list));
+    for (const it of items) if (it.message?.trim()) personal.set(it.leadId, { message: it.message, subject: it.subject });
+  }
+
   const seen = new Set<string>();
-  const audience: { leadId: number; phone: string; name: string | null; service: string | null }[] = [];
+  const audience: {
+    leadId: number;
+    phone: string;
+    name: string | null;
+    service: string | null;
+    personal?: { message: string; subject: string | null };
+  }[] = [];
   let noNumber = 0;
   let duplicate = 0;
   for (const r of rows) {
@@ -58,9 +74,17 @@ export async function buildAudience(workspaceId: number, filters: LeadFilters, c
       continue;
     }
     seen.add(phone);
-    if (audience.length < MAX_RECIPIENTS) audience.push({ leadId: r.id, phone, name: r.name, service: r.service });
+    const own = personal.get(r.id);
+    if (audience.length < MAX_RECIPIENTS)
+      audience.push({
+        leadId: r.id,
+        phone,
+        name: r.name,
+        service: r.service,
+        personal: own?.message ? { message: own.message, subject: own.subject } : undefined
+      });
   }
-  return { audience, matched: rows.length, noNumber, duplicate };
+  return { audience, matched: rows.length, noNumber, duplicate, personalCount: audience.filter((a) => a.personal).length };
 }
 
 /** Creates the campaign and one recipient row (unique code + final message) per person. */
@@ -81,6 +105,8 @@ export async function createCampaignWithRecipients(input: {
   dailyLimit?: number;
   subject?: string;
   senderId?: number;
+  /** Send each lead their own saved message (from a list) instead of the shared one, when they have one. */
+  usePersonal?: boolean;
 }) {
   const channel = input.channel ?? "sms";
   const { audience } = await buildAudience(input.workspaceId, input.filters, channel);
@@ -117,7 +143,10 @@ export async function createCampaignWithRecipients(input: {
       const rows = pending.map((a) => {
         const code = newCode();
         const vars = { name: a.name, service: a.service, link: `${base}/${code}` };
-        let message = renderTemplate(input.message, vars, { cleanNames: input.cleanNames });
+        const own = input.usePersonal ? a.personal : undefined;
+        // A personal message still needs the tracking link; add it at the end if it was left out.
+        const template = own ? (/\{link\}/i.test(own.message) ? own.message : `${own.message.trim()}${channel === "sms" ? " " : "\n\n"}{link}`) : input.message;
+        let message = renderTemplate(template, vars, { cleanNames: input.cleanNames });
         if (channel === "email") message += EMAIL_FOOTER(unsubscribeUrl(code));
         return {
           workspaceId: input.workspaceId,
@@ -126,7 +155,7 @@ export async function createCampaignWithRecipients(input: {
           phone: a.phone,
           trackingCode: code,
           message,
-          subject: channel === "email" ? renderTemplate(input.subject ?? "", vars).slice(0, 200) : null,
+          subject: channel === "email" ? renderTemplate(own?.subject || input.subject || "", vars).slice(0, 200) : null,
           parts: channel === "sms" ? smsParts(message).parts : 1
         };
       });

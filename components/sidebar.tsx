@@ -2,7 +2,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FileSpreadsheet, FileText, Inbox, LayoutDashboard, LogOut, Megaphone, RadioTower, Settings, Users, Briefcase, type LucideIcon } from "lucide-react";
+import {
+  Bookmark,
+  FileSpreadsheet,
+  FileText,
+  Inbox,
+  LayoutDashboard,
+  LogOut,
+  Megaphone,
+  RadioTower,
+  Settings,
+  Users,
+  Briefcase,
+  type LucideIcon
+} from "lucide-react";
 import { logout } from "@/app/actions/auth";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -15,6 +28,7 @@ const GROUPS: { title?: string; items: Item[] }[] = [
     title: "Leads",
     items: [
       { href: "/leads", label: "All leads", icon: Users },
+      { href: "/leads/lists", label: "Saved lists", icon: Bookmark },
       { href: "/leads/import", label: "Import", icon: FileSpreadsheet }
     ]
   },

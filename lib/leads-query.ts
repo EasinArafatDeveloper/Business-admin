@@ -22,6 +22,8 @@ export type LeadFilters = {
   has: ("phone" | "whatsapp" | "email" | "website")[];
   minScore?: number;
   minAds?: number;
+  /** Only leads saved in this list (Leads → Saved lists). */
+  list?: number;
   sort: "score" | "followers" | "ads" | "newest" | "name";
   page: number;
 };
@@ -53,6 +55,7 @@ export function parseFilters(sp: Params): LeadFilters {
     has: hasRaw.filter((h): h is LeadFilters["has"][number] => (HAS as readonly string[]).includes(h)),
     minScore: num(one(sp.minScore)),
     minAds: num(one(sp.minAds)),
+    list: num(one(sp.list)),
     sort: (SORTS as readonly string[]).includes(sort ?? "") ? (sort as LeadFilters["sort"]) : "score",
     page: Math.max(1, num(one(sp.page)) ?? 1)
   };
@@ -99,6 +102,7 @@ export function whereFor(workspaceId: number, f: LeadFilters): SQL {
   if (f.bd) conds.push(eq(L.inBangladesh, f.bd === "yes"));
   if (f.minScore !== undefined) conds.push(gte(L.score, f.minScore));
   if (f.minAds !== undefined) conds.push(gte(L.activeAds, f.minAds));
+  if (f.list !== undefined) conds.push(sql`exists (select 1 from lead_list_items li where li.list_id = ${f.list} and li.lead_id = ${L.id})`);
   for (const h of f.has) {
     const col = { phone: L.phone, whatsapp: L.whatsapp, email: L.email, website: L.website }[h];
     conds.push(and(isNotNull(col), ne(col, "")));

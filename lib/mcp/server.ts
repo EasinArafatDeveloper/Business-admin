@@ -4,7 +4,8 @@ import { and, asc, desc, eq, gte, ilike, inArray, isNull, or, sql, type SQL } fr
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { LEAD_STATUSES } from "@/lib/constants";
-import { findLeads, parseFilters } from "@/lib/leads-query";
+import { parseFilters, whereFor } from "@/lib/leads-query";
+import { addLeads } from "@/lib/lists";
 import { createCampaignWithRecipients, dhakaNow } from "@/lib/campaigns";
 import { getBilling, invoicePrefix, invoiceUrl, nextInvoiceNumber, publicToken } from "@/lib/billing";
 import { fmtDate, invoiceState, parseTaka, taka, totals } from "@/lib/money";
@@ -38,11 +39,33 @@ const leadFilterShape = {
   has: z
     .array(z.enum(["phone", "whatsapp", "email", "website"]))
     .optional()
-    .describe("Only leads that have these")
+    .describe("Only leads that have these"),
+  minScore: z.number().int().min(0).max(100).optional().describe("Only leads with at least this score"),
+  list: z.number().int().optional().describe("Only leads in this saved list (see list_lead_lists)")
 };
-type LeadFilterInput = { query?: string; status?: string; priority?: string; industry?: string; service?: string; source?: string; has?: string[] };
+type LeadFilterInput = {
+  query?: string;
+  status?: string;
+  priority?: string;
+  industry?: string;
+  service?: string;
+  source?: string;
+  has?: string[];
+  minScore?: number;
+  list?: number;
+};
 const toFilters = (f: LeadFilterInput) =>
-  parseFilters({ q: f.query, status: f.status, priority: f.priority, industry: f.industry, service: f.service, source: f.source, has: f.has ?? [] });
+  parseFilters({
+    q: f.query,
+    status: f.status,
+    priority: f.priority,
+    industry: f.industry,
+    service: f.service,
+    source: f.source,
+    has: f.has ?? [],
+    minScore: f.minScore !== undefined ? String(f.minScore) : undefined,
+    list: f.list !== undefined ? String(f.list) : undefined
+  });
 
 /**
  * A fresh MCP server for one request, with only the tools this key's owner may use.
@@ -150,15 +173,35 @@ export function buildServer(ctx: McpContext) {
     "search_leads",
     {
       title: "Search leads",
-      description: "Find leads with filters. Returns up to `limit` (max 50) plus the total that match.",
+      description:
+        "Find leads with filters, best score first. Page with offset/limit (max 100 per call). Set detailed=true to get what you need to analyse them (pain point, pitch, ads, followers, website, how they take orders). Returns the total that match.",
       section: "leads",
-      input: { ...leadFilterShape, limit: z.number().int().min(1).max(50).optional() }
+      input: {
+        ...leadFilterShape,
+        limit: z.number().int().min(1).max(100).optional(),
+        offset: z.number().int().min(0).max(100000).optional(),
+        detailed: z.boolean().optional()
+      }
     },
     async (a) => {
-      const { rows, total } = await findLeads(ws, toFilters(a));
+      const where = whereFor(ws, toFilters(a));
+      const [rows, [{ total }]] = await Promise.all([
+        db
+          .select()
+          .from(L)
+          .where(where)
+          .orderBy(sql`${L.score} desc nulls last`, asc(L.id))
+          .limit(a.limit ?? 25)
+          .offset(a.offset ?? 0),
+        db
+          .select({ total: sql<number>`count(*)::int` })
+          .from(L)
+          .where(where)
+      ]);
       return ok({
         total,
-        leads: rows.slice(0, a.limit ?? 20).map((l) => ({
+        offset: a.offset ?? 0,
+        leads: rows.map((l) => ({
           id: l.id,
           name: l.pageName,
           status: l.status,
@@ -169,6 +212,28 @@ export function buildServer(ctx: McpContext) {
           phone: l.phone,
           whatsapp: l.whatsapp,
           email: l.email,
+          ...(a.detailed
+            ? {
+                category: l.category,
+                size: l.sizeTier,
+                followers: l.followers,
+                painPoint: l.painPoint,
+                pitch: l.pitch,
+                otherServices: l.otherServices,
+                activeAds: l.activeAds,
+                runningDays: l.runningDays,
+                offers: l.offers,
+                adPrices: l.adPriceRange,
+                website: l.website,
+                websiteType: l.websiteType,
+                platform: l.websitePlatform,
+                ordersVia: l.ordersVia,
+                page: l.pageLink,
+                address: l.address,
+                inBangladesh: l.inBangladesh,
+                optedOut: { sms: l.smsOptOut, whatsapp: l.waOptOut, email: l.emailOptOut }
+              }
+            : {}),
           url: adminUrl(`/leads/${l.id}`)
         }))
       });
@@ -237,6 +302,167 @@ export function buildServer(ctx: McpContext) {
       if (!lead) return fail("No lead with that id");
       await db.insert(schema.leadActivities).values({ workspaceId: ws, leadId: lead.id, userId: user.id, type: "note", body: a.note, meta: { via: "ai" } });
       return ok({ saved: true });
+    }
+  );
+
+  /* ------------------------------------------------------------ saved lists */
+
+  const listItemShape = z.object({
+    id: z.number().int().describe("Lead id"),
+    reason: z.string().max(1000).optional().describe("Why you picked this lead — shown in the admin"),
+    message: z
+      .string()
+      .max(5000)
+      .optional()
+      .describe("This person's own SMS/WhatsApp/email text. Use {link} where the tracking link goes (added at the end if left out)."),
+    subject: z.string().max(200).optional().describe("Their own email subject")
+  });
+
+  /** Only leads from this workspace; returns the valid ids. */
+  async function validLeadIds(ids: number[]) {
+    if (!ids.length) return new Set<number>();
+    const rows = await db
+      .select({ id: L.id })
+      .from(L)
+      .where(and(eq(L.workspaceId, ws), inArray(L.id, ids)));
+    return new Set(rows.map((r) => r.id));
+  }
+
+  tool(
+    "list_lead_lists",
+    { title: "Saved lead lists", description: "Saved lists of leads, with how many have their own message.", section: "leads", input: {} },
+    async () => {
+      const LL = schema.leadLists;
+      const LI = schema.leadListItems;
+      const rows = await db
+        .select({
+          id: LL.id,
+          name: LL.name,
+          description: LL.description,
+          source: LL.source,
+          updatedAt: LL.updatedAt,
+          leads: sql<number>`count(${LI.id})::int`,
+          withOwnMessage: sql<number>`count(${LI.id}) filter (where ${LI.message} is not null and ${LI.message} <> '')::int`
+        })
+        .from(LL)
+        .leftJoin(LI, eq(LI.listId, LL.id))
+        .where(eq(LL.workspaceId, ws))
+        .groupBy(LL.id)
+        .orderBy(desc(LL.updatedAt));
+      return ok(rows.map((r) => ({ ...r, url: adminUrl(`/leads/lists/${r.id}`) })));
+    }
+  );
+
+  tool(
+    "get_lead_list",
+    {
+      title: "Saved list details",
+      description: "The leads in one saved list, with the reason and own message for each.",
+      section: "leads",
+      input: { id: z.number().int() }
+    },
+    async (a) => {
+      const LL = schema.leadLists;
+      const LI = schema.leadListItems;
+      const [list] = await db
+        .select()
+        .from(LL)
+        .where(and(eq(LL.id, a.id), eq(LL.workspaceId, ws)))
+        .limit(1);
+      if (!list) return fail("No saved list with that id");
+      const items = await db
+        .select({ leadId: LI.leadId, name: L.pageName, status: L.status, reason: LI.reason, message: LI.message, subject: LI.subject })
+        .from(LI)
+        .innerJoin(L, eq(L.id, LI.leadId))
+        .where(eq(LI.listId, list.id))
+        .orderBy(asc(LI.position));
+      return ok({ id: list.id, name: list.name, description: list.description, leads: items, url: adminUrl(`/leads/lists/${list.id}`) });
+    }
+  );
+
+  tool(
+    "create_lead_list",
+    {
+      title: "Save leads as a list",
+      description:
+        "Save your picked leads as a named list in the admin (e.g. after analysing them). For each lead you can add why you picked it and their own personalised message — campaigns sent to this list will send each person their own message. Max 1000 leads.",
+      section: "leads",
+      write: true,
+      input: {
+        name: z.string().min(2).max(120),
+        description: z.string().max(1000).optional(),
+        leads: z.array(listItemShape).min(1).max(1000)
+      }
+    },
+    async (a) => {
+      const valid = await validLeadIds(a.leads.map((l) => l.id));
+      const items = a.leads.filter((l) => valid.has(l.id));
+      if (!items.length) return fail("None of those lead ids exist");
+      const [list] = await db
+        .insert(schema.leadLists)
+        .values({ workspaceId: ws, name: a.name, description: a.description ?? null, source: "ai", createdBy: user.id })
+        .returning({ id: schema.leadLists.id });
+      const added = await addLeads(
+        list.id,
+        items.map((l) => ({ leadId: l.id, reason: l.reason, message: l.message, subject: l.subject }))
+      );
+      return ok({
+        listId: list.id,
+        saved: added,
+        skippedUnknownIds: a.leads.length - items.length,
+        withOwnMessage: items.filter((l) => l.message?.trim()).length,
+        url: adminUrl(`/leads/lists/${list.id}`)
+      });
+    }
+  );
+
+  tool(
+    "add_to_lead_list",
+    {
+      title: "Add to a saved list",
+      description: "Add leads to an existing list, or update the reason / own message of leads already in it.",
+      section: "leads",
+      write: true,
+      input: { listId: z.number().int(), leads: z.array(listItemShape).min(1).max(1000) }
+    },
+    async (a) => {
+      const LL = schema.leadLists;
+      const LI = schema.leadListItems;
+      const [list] = await db
+        .select({ id: LL.id })
+        .from(LL)
+        .where(and(eq(LL.id, a.listId), eq(LL.workspaceId, ws)))
+        .limit(1);
+      if (!list) return fail("No saved list with that id");
+      const valid = await validLeadIds(a.leads.map((l) => l.id));
+      const items = a.leads.filter((l) => valid.has(l.id));
+      const existing = new Set(
+        (
+          await db
+            .select({ leadId: LI.leadId })
+            .from(LI)
+            .where(and(eq(LI.listId, list.id), inArray(LI.leadId, items.map((i) => i.id).concat(-1))))
+        ).map((r) => r.leadId)
+      );
+      let updated = 0;
+      for (const it of items.filter((i) => existing.has(i.id))) {
+        const patch: Record<string, string | null> = {};
+        if (it.reason !== undefined) patch.reason = it.reason;
+        if (it.message !== undefined) patch.message = it.message || null;
+        if (it.subject !== undefined) patch.subject = it.subject || null;
+        if (Object.keys(patch).length) {
+          await db
+            .update(LI)
+            .set(patch)
+            .where(and(eq(LI.listId, list.id), eq(LI.leadId, it.id)));
+          updated++;
+        }
+      }
+      const added = await addLeads(
+        list.id,
+        items.filter((i) => !existing.has(i.id)).map((l) => ({ leadId: l.id, reason: l.reason, message: l.message, subject: l.subject }))
+      );
+      return ok({ listId: list.id, added, updated, skippedUnknownIds: a.leads.length - items.length, url: adminUrl(`/leads/lists/${list.id}`) });
     }
   );
 
@@ -313,7 +539,9 @@ export function buildServer(ctx: McpContext) {
         message: z.string().min(10).max(5000),
         subject: z.string().max(200).optional().describe("Email only"),
         destinationUrl: z.string().max(500).optional().describe("Where {link} goes. Default: the free-audit page"),
-        filters: z.object(leadFilterShape).describe("Who gets it — same filters as search_leads")
+        filters: z.object(leadFilterShape).optional().describe("Who gets it — same filters as search_leads"),
+        listId: z.number().int().optional().describe("Send to a saved list instead of filters"),
+        usePersonalMessages: z.boolean().optional().describe("For a list: send each lead their own saved message when they have one (default true)")
       }
     },
     async (a) => {
@@ -333,7 +561,16 @@ export function buildServer(ctx: McpContext) {
         if (!s) return fail("No email sender is connected yet (Channels → Email)");
         senderId = s.id;
       }
-      const filters = toFilters(a.filters);
+      if (!a.filters && a.listId === undefined) return fail("Give filters or a listId");
+      if (a.listId !== undefined) {
+        const [list] = await db
+          .select({ id: schema.leadLists.id })
+          .from(schema.leadLists)
+          .where(and(eq(schema.leadLists.id, a.listId), eq(schema.leadLists.workspaceId, ws)))
+          .limit(1);
+        if (!list) return fail("No saved list with that id");
+      }
+      const filters = toFilters({ ...(a.filters ?? {}), list: a.listId ?? a.filters?.list });
       const id = await createCampaignWithRecipients({
         workspaceId: ws,
         userId: user.id,
@@ -349,7 +586,8 @@ export function buildServer(ctx: McpContext) {
         maxDelaySec: a.channel === "email" ? 180 : 90,
         dailyLimit: a.channel === "whatsapp" ? 30 : 100,
         subject: a.subject,
-        senderId
+        senderId,
+        usePersonal: a.usePersonalMessages ?? true
       });
       const [c] = await db.select({ total: C.totalRecipients }).from(C).where(eq(C.id, id)).limit(1);
       return ok({ draftId: id, recipients: c?.total, status: "draft — NOT sent", reviewAndStart: adminUrl(`/campaigns/${id}`) });

@@ -11,6 +11,8 @@ import { Card } from "@/components/ui";
 import { CampaignForm } from "@/components/campaigns/campaign-form";
 import { CHANNELS, ChannelIcon } from "@/components/campaigns/channel";
 import { StepHead } from "@/components/campaigns/step-head";
+import { and, eq } from "drizzle-orm";
+import { db, schema } from "@/db";
 
 export const metadata = { title: "New campaign" };
 
@@ -28,7 +30,8 @@ const FILTER_LABELS: Record<string, string> = {
   bd: "Bangladesh",
   has: "Has",
   minScore: "Score ≥",
-  minAds: "Ads ≥"
+  minAds: "Ads ≥",
+  list: "Saved list"
 };
 
 const PRESETS: [string, string, Record<string, string>][] = [
@@ -44,10 +47,18 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
   const channel = sp.channel === "whatsapp" || sp.channel === "email" ? sp.channel : "sms";
   const filters = parseFilters(sp);
   const query = filtersToQuery({ ...filters, page: 1 }).replace(/^\?/, "");
-  const [{ audience, matched, noNumber, duplicate }, health] = await Promise.all([
+  const [{ audience, matched, noNumber, duplicate, personalCount }, health, [list]] = await Promise.all([
     buildAudience(user.workspaceId, filters, channel),
-    getChannelHealth(user.workspaceId)
+    getChannelHealth(user.workspaceId),
+    filters.list !== undefined
+      ? db
+          .select({ id: schema.leadLists.id, name: schema.leadLists.name })
+          .from(schema.leadLists)
+          .where(and(eq(schema.leadLists.id, filters.list), eq(schema.leadLists.workspaceId, user.workspaceId)))
+          .limit(1)
+      : Promise.resolve([])
   ]);
+  const personalSample = audience.find((a) => a.personal);
   const withChannel = (c: string, q = query) => {
     const p = new URLSearchParams(q);
     if (c !== "sms") p.set("channel", c);
@@ -57,7 +68,7 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
 
   const chips = Object.entries(filters)
     .filter(([k, v]) => !["page", "sort"].includes(k) && v !== undefined && !(Array.isArray(v) && v.length === 0))
-    .map(([k, v]) => [FILTER_LABELS[k] ?? k, Array.isArray(v) ? v.join(", ") : String(v)] as const);
+    .map(([k, v]) => [FILTER_LABELS[k] ?? k, k === "list" ? (list?.name ?? `#${v}`) : Array.isArray(v) ? v.join(", ") : String(v)] as const);
   const noFilters = chips.length === 0;
 
   const waReady = health.whatsapp.status.state === "open";
@@ -218,6 +229,14 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
         balance={health.sms.balance}
         waConnected={waReady}
         senders={health.email.senders}
+        personal={
+          personalCount > 0 && personalSample?.personal
+            ? {
+                count: personalCount,
+                sample: { name: personalSample.name ?? "", message: personalSample.personal.message, subject: personalSample.personal.subject }
+              }
+            : undefined
+        }
       />
     </div>
   );

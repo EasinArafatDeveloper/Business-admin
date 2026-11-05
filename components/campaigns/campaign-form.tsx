@@ -42,7 +42,8 @@ export function CampaignForm({
   rate,
   balance,
   waConnected = true,
-  senders = []
+  senders = [],
+  personal
 }: {
   channel: Channel;
   audienceQuery: string;
@@ -54,7 +55,10 @@ export function CampaignForm({
   balance: number | null;
   waConnected?: boolean;
   senders?: SenderOption[];
+  /** From a saved list where some leads have their own message. */
+  personal?: { count: number; sample: { name: string; message: string; subject: string | null } };
 }) {
+  const [usePersonal, setUsePersonal] = useState(Boolean(personal));
   const wa = channel === "whatsapp";
   const em = channel === "email";
   const paced = wa || em;
@@ -73,7 +77,11 @@ export function CampaignForm({
   // Same variation on server and browser; "Shuffle" shows another one.
   const [variant, setVariant] = useState(0);
   const pick = (n: number) => variant % n;
-  const preview = renderTemplate(message, { ...sample, link }, { cleanNames, pick });
+  // With personal messages on, preview one of them (link added at the end if it was left out, like when sending).
+  const own = usePersonal && personal ? personal.sample : null;
+  const ownTemplate = own ? (/\{link\}/i.test(own.message) ? own.message : `${own.message.trim()}${channel === "sms" ? " " : "\n\n"}{link}`) : null;
+  const previewName = own ? { ...sample, name: own.name || sample.name } : sample;
+  const preview = renderTemplate(ownTemplate ?? message, { ...previewName, link }, { cleanNames, pick });
   const { parts, chars, unicode } = smsParts(preview);
   const est = estimateParts(message, groups, link.length, { cleanNames });
   const cost = est.totalParts * rate;
@@ -82,7 +90,7 @@ export function CampaignForm({
   const [minGap, maxGap] = gap.split("-").map(Number);
   const perDay = em ? (sender?.dailyLimit ?? 100) : daily;
   const days = Math.ceil(audienceSize / perDay);
-  const previewSubject = renderTemplate(subject, { ...sample, link }, { pick });
+  const previewSubject = renderTemplate(own?.subject || subject, { ...previewName, link }, { pick });
   const label = em ? "email" : wa ? "WhatsApp" : "SMS";
 
   const insert = (token: string) => {
@@ -100,6 +108,7 @@ export function CampaignForm({
     <form action={action} className="grid grid-cols-1 gap-5 lg:grid-cols-5">
       <input type="hidden" name="audienceQuery" value={audienceQuery} />
       <input type="hidden" name="channel" value={channel} />
+      {usePersonal && personal && <input type="hidden" name="usePersonal" value="on" />}
       {em && <input type="hidden" name="dailyLimit" value={perDay} />}
       {paced && (
         <>
@@ -111,6 +120,20 @@ export function CampaignForm({
 
       <div className="space-y-3 lg:col-span-3">
         <StepHead n={3} title="Message" />
+        {personal && (
+          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-accent/40 bg-accent/10 p-4">
+            <input type="checkbox" checked={usePersonal} onChange={(e) => setUsePersonal(e.target.checked)} className="mt-0.5 accent-[#3b6bff]" />
+            <span className="text-sm">
+              <b>Send each person their own message</b> — {nf.format(personal.count)} of {nf.format(audienceSize)} people in this list have one.
+              <span className="mt-0.5 block text-xs text-muted">
+                {personal.count < audienceSize
+                  ? `The other ${nf.format(audienceSize - personal.count)} get the message below.`
+                  : "Everyone has their own; the message below is only a backup."}{" "}
+                Their tracking link is added automatically if it&apos;s missing.
+              </span>
+            </span>
+          </label>
+        )}
         <Card className="space-y-4 p-5">
           <label className="block">
             <Label>Campaign name</Label>
@@ -319,6 +342,9 @@ export function CampaignForm({
               ))}
               <Row k="Total SMS parts" v={nf.format(est.totalParts)} />
               <Row k="Rate" v={`৳${rate} / part`} />
+              {usePersonal && personal && (
+                <p className="text-xs text-warning">Personal messages have their own length — the exact cost is shown on the next page before you start.</p>
+              )}
               <div className="border-t border-line pt-2">
                 <Row k="Estimated cost" v={`৳${nf.format(Math.round(cost * 100) / 100)}`} strong />
               </div>

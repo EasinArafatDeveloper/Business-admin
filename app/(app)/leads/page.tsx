@@ -3,6 +3,9 @@ import { ChevronLeft, ChevronRight, FileSpreadsheet, Megaphone } from "lucide-re
 import { requireAccess } from "@/lib/auth";
 import { PAGE_SIZE, filterOptions, filtersToQuery, findLeads, parseFilters } from "@/lib/leads-query";
 import { FilterBar } from "@/components/leads/filter-bar";
+import { SaveToList } from "@/components/lists/list-forms";
+import { desc, eq } from "drizzle-orm";
+import { db, schema } from "@/db";
 import { LeadsTable } from "@/components/leads/leads-table";
 import { nf } from "@/lib/utils";
 
@@ -11,7 +14,16 @@ export const metadata = { title: "Leads" };
 export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
   const user = await requireAccess("leads");
   const filters = parseFilters(await searchParams);
-  const [{ rows, total }, options] = await Promise.all([findLeads(user.workspaceId, filters), filterOptions(user.workspaceId)]);
+  const [{ rows, total }, options, lists] = await Promise.all([
+    findLeads(user.workspaceId, filters),
+    filterOptions(user.workspaceId),
+    db
+      .select({ id: schema.leadLists.id, name: schema.leadLists.name })
+      .from(schema.leadLists)
+      .where(eq(schema.leadLists.workspaceId, user.workspaceId))
+      .orderBy(desc(schema.leadLists.updatedAt))
+      .limit(100)
+  ]);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const from = total === 0 ? 0 : (filters.page - 1) * PAGE_SIZE + 1;
   const to = Math.min(total, filters.page * PAGE_SIZE);
@@ -23,7 +35,8 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
           <h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
           <p className="mt-1 text-sm text-muted">{nf.format(total)} matching</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <SaveToList query={filtersToQuery({ ...filters, page: 1 }).replace(/^\?/, "")} total={total} lists={lists} />
           <Link href="/leads/import" className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line-strong px-3 text-sm hover:border-accent/60">
             <FileSpreadsheet className="h-4 w-4" /> Import Excel
           </Link>
@@ -37,7 +50,7 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
         </div>
       </div>
 
-      <FilterBar options={options} />
+      <FilterBar options={options} lists={lists} />
       <LeadsTable rows={rows} />
 
       {total > 0 && (
@@ -70,7 +83,11 @@ function PageLink({ href, disabled, label, children }: { href: string; disabled:
       </span>
     );
   return (
-    <Link href={href} aria-label={label} className="flex h-8 w-8 items-center justify-center rounded-lg border border-line-strong hover:border-accent/60 hover:text-fg">
+    <Link
+      href={href}
+      aria-label={label}
+      className="flex h-8 w-8 items-center justify-center rounded-lg border border-line-strong hover:border-accent/60 hover:text-fg"
+    >
       {children}
     </Link>
   );
