@@ -47,7 +47,16 @@ export function mapRows(sheet: Sheet, m: Mapping) {
  * Creates a saved list from an uploaded sheet: each row is matched to an existing lead
  * (same mobile or email) or saved as a new one, and keeps its own message for campaigns.
  */
-export async function importSheetAsList(opts: { workspaceId: number; userId: number; sheet: Sheet; mapping: Mapping; listName: string; fileName: string }) {
+export async function importSheetAsList(opts: {
+  workspaceId: number;
+  userId: number;
+  sheet: Sheet;
+  mapping: Mapping;
+  listName: string;
+  fileName: string;
+  /** Add to / refresh this existing list instead of creating one. */
+  intoListId?: number;
+}) {
   const rows = mapRows(opts.sheet, opts.mapping).filter((r) => r.phone || r.email);
   const skipped = opts.sheet.rows.length - rows.length;
   if (rows.length === 0) throw new Error("No row has a valid Bangladeshi mobile number or email");
@@ -126,16 +135,29 @@ export async function importSheetAsList(opts: { workspaceId: number; userId: num
     }
   }
 
-  const [list] = await db
-    .insert(schema.leadLists)
-    .values({
-      workspaceId: ws,
-      name: opts.listName.slice(0, 120),
-      description: `Uploaded from ${opts.fileName} — ${rows.length} rows`,
-      source: "file",
-      createdBy: opts.userId
-    })
-    .returning({ id: schema.leadLists.id });
+  const LI = schema.leadListItems;
+  let listId: number;
+  if (opts.intoListId) {
+    // "Update from file": fill an existing list instead of making a new one.
+    const [own] = await db
+      .select({ id: schema.leadLists.id })
+      .from(schema.leadLists)
+      .where(and(eq(schema.leadLists.id, opts.intoListId), eq(schema.leadLists.workspaceId, ws)))
+      .limit(1);
+    if (!own) throw new Error("List not found");
+    listId = own.id;
+  } else {
+    [{ id: listId }] = await db
+      .insert(schema.leadLists)
+      .values({
+        workspaceId: ws,
+        name: opts.listName.slice(0, 120),
+        description: `Uploaded from ${opts.fileName} — ${rows.length} rows`,
+        source: "file",
+        createdBy: opts.userId
+      })
+      .returning({ id: schema.leadLists.id });
+  }
 
   const seen = new Set<number>();
   const items = [];
@@ -145,6 +167,26 @@ export async function importSheetAsList(opts: { workspaceId: number; userId: num
     seen.add(id);
     items.push({ leadId: id, reason: r.reason, message: r.message, subject: r.subject, emailBody: r.emailBody, offer: r.offer, tag: offerGroup(r.offer) });
   }
-  const added = await addLeads(list.id, items);
-  return { listId: list.id, added, matched: rows.length - fresh.length, created: fresh.length, skipped, duplicates: rows.length - items.length };
+
+  // People already in the list: refresh what the file has for them (offer, group, messages, note).
+  let updated = 0;
+  if (opts.intoListId) {
+    const inList = new Set((await db.select({ leadId: LI.leadId }).from(LI).where(eq(LI.listId, listId))).map((r) => r.leadId));
+    for (const it of items.filter((i) => inList.has(i.leadId))) {
+      const patch = Object.fromEntries(
+        Object.entries({ reason: it.reason, message: it.message, subject: it.subject, emailBody: it.emailBody, offer: it.offer, tag: it.tag }).filter(
+          ([, v]) => v !== null && v !== undefined
+        )
+      );
+      if (Object.keys(patch).length) {
+        await db
+          .update(LI)
+          .set(patch)
+          .where(and(eq(LI.listId, listId), eq(LI.leadId, it.leadId)));
+        updated++;
+      }
+    }
+  }
+  const added = await addLeads(listId, items);
+  return { listId, added, updated, matched: rows.length - fresh.length, created: fresh.length, skipped, duplicates: rows.length - items.length };
 }

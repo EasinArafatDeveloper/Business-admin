@@ -43,7 +43,8 @@ export async function POST(req: Request) {
   if (mapping.phone === undefined && mapping.email === undefined) return NextResponse.json({ error: "Pick the mobile or the email column" }, { status: 400 });
   const listName = String(form!.get("listName") ?? "").trim() || file.name.replace(/\.(xlsx|csv)$/i, "");
   try {
-    const result = await importSheetAsList({ workspaceId: user.workspaceId, userId: user.id, sheet, mapping, listName, fileName: file.name });
+    const intoListId = Number(form!.get("listId")) || undefined;
+    const result = await importSheetAsList({ workspaceId: user.workspaceId, userId: user.id, sheet, mapping, listName, fileName: file.name, intoListId });
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Import failed" }, { status: 400 });

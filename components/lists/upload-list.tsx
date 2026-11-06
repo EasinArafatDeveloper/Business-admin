@@ -28,7 +28,20 @@ type Preview = { sheetName: string; headers: string[]; total: number; mapping: P
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i;
 
 /** Upload an Excel/CSV → check columns → see exactly what each person gets → save as a list. */
-export function UploadList({ rate, linkBase, then, channel }: { rate: number; linkBase: string; then?: "campaign"; channel?: string }) {
+export function UploadList({
+  rate,
+  linkBase,
+  then,
+  channel,
+  intoList
+}: {
+  rate: number;
+  linkBase: string;
+  then?: "campaign";
+  channel?: string;
+  /** Update this existing list from the file instead of creating a new one. */
+  intoList?: { id: number; name: string };
+}) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -63,6 +76,7 @@ export function UploadList({ rate, linkBase, then, channel }: { rate: number; li
     fd.set("step", "import");
     fd.set("mapping", JSON.stringify(mapping));
     fd.set("listName", listName);
+    if (intoList) fd.set("listId", String(intoList.id));
     const r = await fetch("/api/lists/upload", { method: "POST", body: fd });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) {
@@ -72,7 +86,9 @@ export function UploadList({ rate, linkBase, then, channel }: { rate: number; li
     router.push(
       then === "campaign"
         ? `/campaigns/new?list=${j.listId}${channel && channel !== "sms" ? `&channel=${channel}` : ""}`
-        : `/leads/lists/${j.listId}?added=${j.added}`
+        : intoList
+          ? `/leads/lists/${j.listId}?updated=${j.updated ?? 0}&added=${j.added}`
+          : `/leads/lists/${j.listId}?added=${j.added}`
     );
   }
 
@@ -227,10 +243,16 @@ export function UploadList({ rate, linkBase, then, channel }: { rate: number; li
 
       <div className="space-y-3 lg:sticky lg:top-6 lg:h-fit">
         <Card className="space-y-3 p-5 text-sm">
-          <label className="block">
-            <Label>List name</Label>
-            <input value={listName} onChange={(e) => setListName(e.target.value)} className={inputClass} />
-          </label>
+          {intoList ? (
+            <div className="rounded-xl bg-accent/10 px-3 py-2 text-xs">
+              Updating <b>{intoList.name}</b>: people already in it get the offer, group and messages from this file; new people are added.
+            </div>
+          ) : (
+            <label className="block">
+              <Label>List name</Label>
+              <input value={listName} onChange={(e) => setListName(e.target.value)} className={inputClass} />
+            </label>
+          )}
           <Row k="People" v={nf.format(usable.length)} />
           <Row k="With their own SMS/WhatsApp text" v={nf.format(withMsg.length)} />
           <Row k="With their own email" v={nf.format(usable.filter((p) => p.email && p.emailBody).length)} />
@@ -242,7 +264,7 @@ export function UploadList({ rate, linkBase, then, channel }: { rate: number; li
           {error && <p className="text-sm text-danger">{error}</p>}
           <Button onClick={doImport} disabled={busy !== "" || usable.length === 0} className="w-full">
             {busy === "importing" ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
-            {then === "campaign" ? "Save list and write campaign" : `Save ${nf.format(usable.length)} as a list`}
+            {intoList ? `Update “${intoList.name}”` : then === "campaign" ? "Save list and write campaign" : `Save ${nf.format(usable.length)} as a list`}
           </Button>
           <button type="button" onClick={() => setPreview(null)} className="w-full text-xs text-muted hover:text-fg">
             Choose another file

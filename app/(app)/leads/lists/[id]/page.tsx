@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
-import { ArrowLeft, Bot, Filter, Mail, MessageCircle, MessageSquareText, Tag } from "lucide-react";
+import { ArrowLeft, Bot, FileUp, Filter, Mail, MessageCircle, MessageSquareText, Tag } from "lucide-react";
 import { autoTagFromDetails } from "@/lib/lists";
 import { cn } from "@/lib/utils";
 import { db, schema } from "@/db";
@@ -50,6 +50,8 @@ export default async function ListPage({ params, searchParams }: PageProps<"/lea
   const personal = items.filter((i) => i.item.message?.trim()).length;
   const campaigns = can(user, "campaigns");
   const added = typeof sp.added === "string" ? Number(sp.added) : null;
+  const updatedN = typeof sp.updated === "string" ? Number(sp.updated) : null;
+  const ungrouped = all.length > 0 && all.every((i) => !i.item.tag);
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
@@ -59,12 +61,14 @@ export default async function ListPage({ params, searchParams }: PageProps<"/lea
 
       {added !== null && (
         <div className="rounded-xl border border-success/30 bg-success/10 px-4 py-2.5 text-sm text-success">
-          Saved {nf.format(added)} new leads to this list.
+          {updatedN !== null
+            ? `Updated ${nf.format(updatedN)} people from the file${added ? `, added ${nf.format(added)} new` : ""}.`
+            : `Saved ${nf.format(added)} new leads to this list.`}
         </div>
       )}
 
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h1 className="truncate text-2xl font-semibold tracking-tight">{list.name}</h1>
             {list.source === "ai" && (
@@ -84,6 +88,12 @@ export default async function ListPage({ params, searchParams }: PageProps<"/lea
           className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line-strong px-3 text-sm hover:border-accent/60"
         >
           <Filter className="h-4 w-4" /> Open in Leads
+        </Link>
+        <Link
+          href={`/leads/lists/upload?list=${id}`}
+          className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line-strong px-3 text-sm hover:border-accent/60"
+        >
+          <FileUp className="h-4 w-4" /> Update from file
         </Link>
       </div>
 
@@ -106,6 +116,18 @@ export default async function ListPage({ params, searchParams }: PageProps<"/lea
               </Link>
             )
           )}
+        </div>
+      ) : ungrouped ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-accent/30 bg-accent/10 px-4 py-3 text-sm">
+          <span className="flex items-center gap-2">
+            <Tag className="h-4 w-4 text-accent-soft" /> No offer groups yet. Upload the same file again and the “offer” column fills them in — no duplicates.
+          </span>
+          <Link
+            href={`/leads/lists/upload?list=${id}`}
+            className="inline-flex h-8 items-center gap-1.5 rounded-xl bg-accent px-3 text-sm font-medium text-white"
+          >
+            <FileUp className="h-4 w-4" /> Update from file
+          </Link>
         </div>
       ) : null}
 
