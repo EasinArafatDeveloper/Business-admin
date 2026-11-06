@@ -263,7 +263,7 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
             audienceQuery={query}
             audienceSize={audience.length}
             groups={groupAudience(audience)}
-            sample={{ name: sample?.name ?? "Sign of Modesty", service: sample?.service ?? "E-commerce Website" }}
+            sample={{ name: sample?.name ?? "Sign of Modesty", service: sample?.service ?? "E-commerce Website", fields: sample?.fields }}
             linkBase={linkBase()}
             rate={health.sms.rate}
             balance={health.sms.balance}

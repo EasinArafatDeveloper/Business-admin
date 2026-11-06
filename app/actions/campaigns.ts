@@ -6,7 +6,8 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { requireAction } from "@/lib/auth";
-import { createCampaignWithRecipients } from "@/lib/campaigns";
+import { createCampaignWithRecipients, findLeadsByContacts } from "@/lib/campaigns";
+import type { LeadFields } from "@/lib/sms-text";
 import { parseFilters } from "@/lib/leads-query";
 import { normalizeBdMobile, renderTemplate } from "@/lib/sms-text";
 import { sendSms } from "@/lib/sms";
@@ -175,4 +176,42 @@ export async function sendTestSms(id: number, _: ActionState, formData: FormData
   }
   const res = await sendSms(phone, text);
   return res.ok ? { ok: `Test SMS sent to ${phone}` } : { error: `Not sent — ${res.info} (${res.code})` };
+}
+
+export type PastedMatch = {
+  to: string;
+  lead: {
+    id: number;
+    name: string | null;
+    status: string;
+    priority: string | null;
+    service: string | null;
+    optedOut: boolean;
+    fields: LeadFields;
+  } | null;
+};
+
+/** Which pasted numbers / emails are already in your leads, with their data (for {ads} {days} … in the message). */
+export async function lookupPasted(contacts: string[], channel: "sms" | "whatsapp" | "email"): Promise<PastedMatch[]> {
+  const user = await requireAction("campaigns");
+  const list = [...new Set(contacts.map(String))].slice(0, 5000);
+  if (!list.length) return [];
+  const { byKey, keyOf } = await findLeadsByContacts(user.workspaceId, list, channel);
+  return list.map((to) => {
+    const l = byKey.get(keyOf(to));
+    return {
+      to,
+      lead: l
+        ? {
+            id: l.id,
+            name: l.name,
+            status: l.status,
+            priority: l.priority,
+            service: l.service,
+            optedOut: channel === "whatsapp" ? l.waOptOut : channel === "email" ? l.emailOptOut : l.smsOptOut,
+            fields: l.fields
+          }
+        : null
+    };
+  });
 }

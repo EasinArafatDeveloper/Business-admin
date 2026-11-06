@@ -2,7 +2,7 @@
 
 import { useActionState, useRef, useState } from "react";
 import { createCampaign } from "@/app/actions/campaigns";
-import { type AudienceGroup, estimateParts, renderTemplate, sampleLink, smsParts } from "@/lib/sms-text";
+import { type AudienceGroup, LEAD_FIELDS, type LeadFields, estimateParts, renderTemplate, sampleLink, smsParts } from "@/lib/sms-text";
 import { Button, Card, Label, inputClass } from "@/components/ui";
 import { cn, nf } from "@/lib/utils";
 import { StepHead } from "@/components/campaigns/step-head";
@@ -50,7 +50,7 @@ export function CampaignForm({
   audienceQuery: string;
   audienceSize: number;
   groups: AudienceGroup[];
-  sample: { name: string; service: string };
+  sample: { name: string; service: string; fields?: LeadFields };
   linkBase: string;
   rate: number;
   balance: number | null;
@@ -218,9 +218,24 @@ export function CampaignForm({
                 </button>
               ))}
             </div>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-muted-2">Lead data:</span>
+              {(Object.keys(LEAD_FIELDS) as (keyof typeof LEAD_FIELDS)[]).map((k) => (
+                <button
+                  type="button"
+                  key={k}
+                  onClick={() => insert(`{${k}}`)}
+                  title={LEAD_FIELDS[k]}
+                  className="rounded-full border border-accent/30 bg-accent/5 px-2.5 py-1 font-mono text-accent-soft hover:text-fg"
+                >
+                  {`{${k}}`}
+                </button>
+              ))}
+            </div>
             <p className="mt-1.5 text-xs text-muted-2">
               {"{a|b|c}"} picks one option at random for each person
-              {paced ? " — recommended so messages aren't identical" : ""}.
+              {paced ? " — recommended so messages aren't identical" : ""}. Lead data comes from each person&apos;s lead; write{" "}
+              <code className="text-muted">{"{ads:onek}"}</code> to use “onek” when a lead has no number for it.
             </p>
           </div>
 

@@ -70,7 +70,54 @@ export function spinLongest(text: string) {
   return text.replace(SPIN, (_, opts: string) => opts.split("|").reduce((a, b) => ([...b].length > [...a].length ? b : a), ""));
 }
 
-export type TemplateVars = { name?: string | null; service?: string | null; link: string };
+export type TemplateVars = { name?: string | null; service?: string | null; link: string; fields?: LeadFields };
+
+/**
+ * Lead data you can put in a message: {ads}, {days}, {followers}…
+ * Write {ads:onek} to use "onek" when a lead has no number for it, so the sentence never breaks.
+ */
+export const LEAD_FIELDS = {
+  industry: "Industry, e.g. Fashion",
+  category: "Page category",
+  ads: "Active ads, e.g. 16",
+  days: "Days their ads have run, e.g. 242",
+  followers: "Followers, e.g. 17,000",
+  pain: "Their pain point (from analysis)",
+  orders: "How they take orders, e.g. Messenger",
+  size: "Page size, e.g. Small",
+  address: "Address / area"
+} as const;
+export type LeadFieldKey = keyof typeof LEAD_FIELDS;
+export type LeadFields = Partial<Record<LeadFieldKey, string | null>>;
+
+const fmtNum = (n: number | null | undefined) => (n == null ? null : n.toLocaleString("en-US"));
+
+/** The {placeholders} values for one lead. */
+export function leadFields(l: {
+  industry?: string | null;
+  category?: string | null;
+  activeAds?: number | null;
+  runningDays?: number | null;
+  followers?: number | null;
+  painPoint?: string | null;
+  ordersVia?: string | null;
+  sizeTier?: string | null;
+  address?: string | null;
+}): LeadFields {
+  return {
+    industry: l.industry ?? null,
+    category: l.category ?? null,
+    ads: fmtNum(l.activeAds),
+    days: fmtNum(l.runningDays),
+    followers: fmtNum(l.followers),
+    pain: l.painPoint ?? null,
+    orders: l.ordersVia ?? null,
+    size: l.sizeTier ?? null,
+    address: l.address ?? null
+  };
+}
+
+const FIELD_RE = new RegExp(`\\{(${Object.keys(LEAD_FIELDS).join("|")})(?::([^{}]*))?\\}`, "gi");
 export type RenderOptions = { cleanNames?: boolean; pick?: (n: number) => number };
 
 /** Fills {name} {service} {link}. With cleanNames, Bangla/emoji in names are dropped (see cleanName). */
@@ -78,6 +125,10 @@ export function renderTemplate(template: string, v: TemplateVars, opts: RenderOp
   const name = opts.cleanNames ? (cleanName(v.name) ?? NAME_FALLBACK) : (v.name ?? "").trim() || NAME_FALLBACK;
   const service = opts.cleanNames ? (cleanName(v.service) ?? SERVICE_FALLBACK) : (v.service ?? "").trim() || SERVICE_FALLBACK;
   return spin(template, opts.pick)
+    .replace(
+      FIELD_RE,
+      (_, key: string, fallback?: string) => (v.fields?.[key.toLowerCase() as LeadFieldKey] ?? "").toString().trim() || (fallback ?? "").trim()
+    )
     .replace(/\{name\}/gi, name)
     .replace(/\{service\}/gi, service)
     .replace(/\{link\}/gi, v.link);

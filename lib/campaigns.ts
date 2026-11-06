@@ -3,7 +3,7 @@ import { and, asc, eq, gte, inArray, or, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { db, schema } from "@/db";
 import { type LeadFilters, whereFor } from "@/lib/leads-query";
-import { normalizeBdMobile, renderTemplate, smsParts } from "@/lib/sms-text";
+import { type LeadFields, leadFields, normalizeBdMobile, renderTemplate, smsParts } from "@/lib/sms-text";
 import { FATAL_CODES, sendSms } from "@/lib/sms";
 import { linkBase, newCode } from "@/lib/tracking";
 import { waSend } from "@/lib/wa";
@@ -34,7 +34,7 @@ export const WA_HOURS = { from: 9, to: 21 };
 export async function buildAudience(workspaceId: number, filters: LeadFilters, channel: Channel = "sms") {
   const optOut = channel === "whatsapp" ? L.waOptOut : channel === "email" ? L.emailOptOut : L.smsOptOut;
   const rows = await db
-    .select({ id: L.id, name: L.pageName, service: L.primaryService, phone: L.phone, whatsapp: L.whatsapp, email: L.email })
+    .select({ id: L.id, name: L.pageName, service: L.primaryService, phone: L.phone, whatsapp: L.whatsapp, email: L.email, ...FIELD_COLS })
     .from(L)
     .where(and(whereFor(workspaceId, filters), eq(optOut, false)))
     .orderBy(sql`${L.score} desc nulls last`, asc(L.id))
@@ -64,6 +64,7 @@ export async function buildAudience(workspaceId: number, filters: LeadFilters, c
     phone: string;
     name: string | null;
     service: string | null;
+    fields?: LeadFields;
     personal?: { message: string; subject: string | null };
   }[] = [];
   let noNumber = 0;
@@ -91,6 +92,7 @@ export async function buildAudience(workspaceId: number, filters: LeadFilters, c
         phone,
         name: r.name,
         service: r.service,
+        fields: leadFields(r),
         personal: own?.message ? { message: own.message, subject: own.subject } : undefined
       });
   }
@@ -102,9 +104,26 @@ export async function buildAudience(workspaceId: number, filters: LeadFilters, c
  * (so clicks and replies show on that lead); people who opted out of this channel are skipped;
  * the rest can be saved as new "manual" leads.
  */
-export async function buildPastedAudience(workspaceId: number, entries: PastedEntry[], channel: Channel, saveAsLeads: boolean) {
+/** Lead columns behind the {ads} {days} {followers}… placeholders. */
+const FIELD_COLS = {
+  industry: L.industry,
+  category: L.category,
+  activeAds: L.activeAds,
+  runningDays: L.runningDays,
+  followers: L.followers,
+  painPoint: L.painPoint,
+  ordersVia: L.ordersVia,
+  sizeTier: L.sizeTier,
+  address: L.address
+};
+
+/**
+ * Finds existing leads for pasted mobiles (last 10 digits of phone/WhatsApp) or emails.
+ * Returns key → lead, where key is the email or the last 10 digits.
+ */
+export async function findLeadsByContacts(workspaceId: number, contacts: string[], channel: Channel) {
   const keyOf = (to: string) => (channel === "email" ? to.toLowerCase() : to.slice(-10));
-  const keys = [...new Set(entries.map((e) => keyOf(e.to)))];
+  const keys = [...new Set(contacts.map(keyOf))];
   const digits10 = (c: AnyPgColumn) => sql<string>`right(regexp_replace(coalesce(${c}, ''), '\\D', '', 'g'), 10)`;
   const found = keys.length
     ? await db
@@ -112,12 +131,15 @@ export async function buildPastedAudience(workspaceId: number, entries: PastedEn
           id: L.id,
           name: L.pageName,
           service: L.primaryService,
+          status: L.status,
+          priority: L.priority,
           phone: digits10(L.phone),
           whatsapp: digits10(L.whatsapp),
           email: sql<string>`lower(coalesce(${L.email}, ''))`,
           smsOptOut: L.smsOptOut,
           waOptOut: L.waOptOut,
-          emailOptOut: L.emailOptOut
+          emailOptOut: L.emailOptOut,
+          ...FIELD_COLS
         })
         .from(L)
         .where(
@@ -129,20 +151,36 @@ export async function buildPastedAudience(workspaceId: number, entries: PastedEn
           )
         )
     : [];
-  const byKey = new Map<string, (typeof found)[number]>();
+  const byKey = new Map<string, (typeof found)[number] & { fields: LeadFields }>();
   for (const l of found) {
+    const withFields = { ...l, fields: leadFields(l) };
     if (channel === "email") {
-      for (const k of keys) if (l.email.includes(k) && !byKey.has(k)) byKey.set(k, l);
+      for (const k of keys) if (l.email.includes(k) && !byKey.has(k)) byKey.set(k, withFields);
     } else {
-      for (const k of [l.whatsapp, l.phone]) if (k && keys.includes(k) && !byKey.has(k)) byKey.set(k, l);
+      for (const k of [l.whatsapp, l.phone]) if (k && keys.includes(k) && !byKey.has(k)) byKey.set(k, withFields);
     }
   }
+  return { byKey, keyOf };
+}
+
+/**
+ * Audience from pasted numbers / emails. Each one is matched to an existing lead when possible
+ * (so clicks and replies show on that lead, and {ads} {days}… use its data); people who opted out
+ * of this channel are skipped; the rest can be saved as new "manual" leads.
+ */
+export async function buildPastedAudience(workspaceId: number, entries: PastedEntry[], channel: Channel, saveAsLeads: boolean) {
+  const { byKey, keyOf } = await findLeadsByContacts(
+    workspaceId,
+    entries.map((e) => e.to),
+    channel
+  );
 
   const audience: {
     leadId: number | null;
     phone: string;
     name: string | null;
     service: string | null;
+    fields?: LeadFields;
     personal?: { message: string; subject: string | null };
   }[] = [];
   let optedOut = 0;
@@ -157,7 +195,7 @@ export async function buildPastedAudience(workspaceId: number, entries: PastedEn
         continue;
       }
       matched++;
-      audience.push({ leadId: lead.id, phone: e.to, name: e.name ?? lead.name, service: lead.service });
+      audience.push({ leadId: lead.id, phone: e.to, name: e.name ?? lead.name, service: lead.service, fields: lead.fields });
     } else {
       audience.push({ leadId: null, phone: e.to, name: e.name, service: null });
       if (saveAsLeads) toCreate.push(e);
@@ -244,7 +282,7 @@ export async function createCampaignWithRecipients(input: {
     for (let attempt = 0; pending.length > 0 && attempt < 5; attempt++) {
       const rows = pending.map((a) => {
         const code = newCode();
-        const vars = { name: a.name, service: a.service, link: `${base}/${code}` };
+        const vars = { name: a.name, service: a.service, link: `${base}/${code}`, fields: a.fields };
         const own = input.usePersonal ? a.personal : undefined;
         // A personal message still needs the tracking link; add it at the end if it was left out.
         const template = own ? (/\{link\}/i.test(own.message) ? own.message : `${own.message.trim()}${channel === "sms" ? " " : "\n\n"}{link}`) : input.message;

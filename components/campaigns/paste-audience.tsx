@@ -1,18 +1,19 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { CheckCircle2, ClipboardPaste, Copy, Loader2, XCircle } from "lucide-react";
-import { checkWhatsappNumbers } from "@/app/actions/campaigns";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { CheckCircle2, ClipboardPaste, Copy, Database, Loader2, UserPlus, XCircle } from "lucide-react";
+import { type PastedMatch, checkWhatsappNumbers, lookupPasted } from "@/app/actions/campaigns";
 import { parsePasted, prettyBd } from "@/lib/paste-audience";
 import { groupAudience } from "@/lib/sms-text";
 import { cn, nf } from "@/lib/utils";
-import { Button, Card } from "@/components/ui";
+import { Button, Card, StatusBadge } from "@/components/ui";
 import { CampaignForm, type SenderOption } from "@/components/campaigns/campaign-form";
 import { StepHead } from "@/components/campaigns/step-head";
+import type { LeadStatus } from "@/lib/constants";
 
 type Channel = "sms" | "whatsapp" | "email";
 
-/** Step 2 for pasted numbers/emails, then the normal message + review steps. */
+/** Step 2 for pasted numbers/emails: who's already in your leads (with their data), who has WhatsApp — then message + review. */
 export function PasteAudience(props: {
   channel: Channel;
   linkBase: string;
@@ -29,14 +30,34 @@ export function PasteAudience(props: {
   const [checkError, setCheckError] = useState("");
   const [checking, startCheck] = useTransition();
   const [copied, setCopied] = useState(false);
+  const [matches, setMatches] = useState<Record<string, PastedMatch["lead"]>>({});
+  const [looking, setLooking] = useState(false);
 
   const parsed = useMemo(() => parsePasted(text, channel), [text, channel]);
+  const key = parsed.entries.map((e) => e.to).join(",");
+
+  // Look the numbers up in your leads shortly after you stop typing/pasting.
+  useEffect(() => {
+    if (!key) return;
+    const t = setTimeout(async () => {
+      setLooking(true);
+      const res = await lookupPasted(key.split(","), channel).catch(() => []);
+      setMatches(Object.fromEntries(res.map((r) => [r.to, r.lead])));
+      setLooking(false);
+    }, 500);
+    return () => clearTimeout(t);
+  }, [key, channel]);
+
   const noWa = wa ? parsed.entries.filter((e) => checked[e.to] === false) : [];
   const unchecked = wa ? parsed.entries.filter((e) => checked[e.to] === undefined) : [];
-  const exclude = noWa.map((e) => e.to);
+  const optedOut = parsed.entries.filter((e) => matches[e.to]?.optedOut);
+  const exclude = [...noWa, ...optedOut].map((e) => e.to);
   const sendTo = parsed.entries.filter((e) => !exclude.includes(e.to));
-  const groups = groupAudience(sendTo.map((e) => ({ name: e.name, service: null })));
-  const sample = sendTo.find((e) => e.name) ?? sendTo[0];
+  const inLeads = parsed.entries.filter((e) => matches[e.to]).length;
+  const groups = groupAudience(sendTo.map((e) => ({ name: e.name ?? matches[e.to]?.name ?? null, service: matches[e.to]?.service ?? null })));
+  // Preview with a real lead when there is one, so {ads} {days} … show real data.
+  const sampleEntry = sendTo.find((e) => matches[e.to]) ?? sendTo.find((e) => e.name) ?? sendTo[0];
+  const sampleLead = sampleEntry ? matches[sampleEntry.to] : null;
 
   return (
     <>
@@ -46,7 +67,7 @@ export function PasteAudience(props: {
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            rows={8}
+            rows={6}
             placeholder={
               channel === "email"
                 ? "One per line, name optional:\ninfo@shop.com, Sign of Modesty\nsales@glow.com.bd"
@@ -59,6 +80,19 @@ export function PasteAudience(props: {
             <span className="font-semibold">
               {nf.format(parsed.entries.length)} {channel === "email" ? "emails" : "numbers"}
             </span>
+            {parsed.entries.length > 0 && (
+              <span className="inline-flex items-center gap-1 text-accent-soft">
+                {looking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Database className="h-3.5 w-3.5" />}
+                {nf.format(inLeads)} already in your leads · {nf.format(parsed.entries.length - inLeads)} new
+              </span>
+            )}
+            {wa && Object.keys(checked).length > 0 && (
+              <span className="text-muted">
+                {nf.format(parsed.entries.length - noWa.length - unchecked.length)} have WhatsApp
+                {noWa.length > 0 && <span className="text-danger"> · {nf.format(noWa.length)} don&apos;t</span>}
+              </span>
+            )}
+            {optedOut.length > 0 && <span className="text-warning">{nf.format(optedOut.length)} opted out — skipped</span>}
             {parsed.duplicates > 0 && <span className="text-muted-2">{nf.format(parsed.duplicates)} duplicates removed</span>}
             {parsed.invalid.length > 0 && <span className="text-warning">{nf.format(parsed.invalid.length)} lines not recognised</span>}
           </div>
@@ -69,63 +103,86 @@ export function PasteAudience(props: {
             </div>
           )}
 
-          {wa && parsed.entries.length > 0 && (
-            <div className="space-y-3 rounded-xl border border-line p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="text-sm">
-                  <b>Who has WhatsApp?</b>
-                  <span className="text-muted">
-                    {" "}
-                    {Object.keys(checked).length === 0
-                      ? "— check before sending; numbers without WhatsApp are skipped."
-                      : `— ${nf.format(parsed.entries.length - noWa.length - unchecked.length)} have it, ${nf.format(noWa.length)} don't${unchecked.length ? `, ${nf.format(unchecked.length)} not checked yet` : ""}.`}
-                  </span>
+          {parsed.entries.length > 0 && (
+            <div className="space-y-3 rounded-xl border border-line">
+              {wa && (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+                  <div className="text-sm">
+                    <b>Who has WhatsApp?</b>
+                    <span className="text-muted"> — numbers without it are skipped.</span>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={checking || unchecked.length === 0 || !props.waConnected}
+                    onClick={() =>
+                      startCheck(async () => {
+                        setCheckError("");
+                        const r = await checkWhatsappNumbers(unchecked.slice(0, 300).map((e) => e.to));
+                        if (r.error) setCheckError(r.error);
+                        else setChecked((c) => ({ ...c, ...r.results }));
+                      })
+                    }
+                  >
+                    {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                    {checking
+                      ? `Checking ${nf.format(Math.min(unchecked.length, 300))}…`
+                      : unchecked.length
+                        ? `Check ${nf.format(Math.min(unchecked.length, 300))} numbers`
+                        : "All checked"}
+                  </Button>
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  disabled={checking || unchecked.length === 0 || !props.waConnected}
-                  onClick={() =>
-                    startCheck(async () => {
-                      setCheckError("");
-                      const r = await checkWhatsappNumbers(unchecked.slice(0, 300).map((e) => e.to));
-                      if (r.error) setCheckError(r.error);
-                      else setChecked((c) => ({ ...c, ...r.results }));
-                    })
-                  }
-                >
-                  {checking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                  {checking
-                    ? `Checking ${nf.format(Math.min(unchecked.length, 300))}…`
-                    : unchecked.length
-                      ? `Check ${nf.format(Math.min(unchecked.length, 300))} numbers`
-                      : "All checked"}
-                </Button>
-              </div>
-              {!props.waConnected && <p className="text-xs text-warning">Connect WhatsApp in Channels to check numbers.</p>}
-              {checkError && <p className="text-xs text-danger">{checkError}</p>}
-              {Object.keys(checked).length > 0 && (
-                <ul className="scroll-thin grid max-h-64 grid-cols-1 gap-1 overflow-y-auto text-sm sm:grid-cols-2">
-                  {parsed.entries.map((e) => (
-                    <li key={e.to} className="flex items-center gap-2 rounded-lg bg-ink-alt px-2.5 py-1.5">
-                      {checked[e.to] === true ? (
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
-                      ) : checked[e.to] === false ? (
-                        <XCircle className="h-4 w-4 shrink-0 text-danger" />
-                      ) : (
-                        <span className="h-4 w-4 shrink-0 rounded-full border border-line-strong" />
-                      )}
-                      <span className="font-mono text-xs">{prettyBd(e.to)}</span>
-                      <span className={cn("truncate text-xs", checked[e.to] === false ? "text-danger" : "text-muted")}>
-                        {checked[e.to] === false ? "no WhatsApp" : (e.name ?? "")}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
               )}
+              {!props.waConnected && wa && <p className="px-4 text-xs text-warning">Connect WhatsApp in Channels to check numbers.</p>}
+              {checkError && <p className="px-4 text-xs text-danger">{checkError}</p>}
+
+              <ul className="scroll-thin max-h-96 divide-y divide-line overflow-y-auto">
+                {parsed.entries.map((e) => {
+                  const lead = matches[e.to];
+                  const f = lead?.fields;
+                  const bits = [
+                    f?.industry,
+                    f?.ads && `${f.ads} ads`,
+                    f?.days && `${f.days} days`,
+                    f?.followers && `${f.followers} followers`,
+                    f?.orders && `orders via ${f.orders}`
+                  ].filter(Boolean);
+                  return (
+                    <li key={e.to} className={cn("flex items-start gap-3 px-4 py-2.5", (checked[e.to] === false || lead?.optedOut) && "opacity-60")}>
+                      {wa &&
+                        (checked[e.to] === true ? (
+                          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-label="Has WhatsApp" />
+                        ) : checked[e.to] === false ? (
+                          <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-label="No WhatsApp" />
+                        ) : (
+                          <span className="mt-0.5 h-4 w-4 shrink-0 rounded-full border border-line-strong" aria-label="Not checked" />
+                        ))}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-xs">{channel === "email" ? e.to : prettyBd(e.to)}</span>
+                          {lead ? (
+                            <a href={`/leads/${lead.id}`} target="_blank" rel="noreferrer" className="truncate text-sm font-medium hover:text-accent-soft">
+                              {lead.name ?? "Lead"}
+                            </a>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-2">
+                              <UserPlus className="h-3 w-3" /> {e.name ?? "New — not in your leads"}
+                            </span>
+                          )}
+                          {lead && <StatusBadge status={lead.status as LeadStatus} />}
+                          {checked[e.to] === false && <span className="text-[11px] text-danger">no WhatsApp</span>}
+                          {lead?.optedOut && <span className="text-[11px] text-warning">opted out</span>}
+                        </div>
+                        {bits.length > 0 && <div className="mt-0.5 truncate text-[11px] text-muted">{bits.join(" · ")}</div>}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+
               {noWa.length > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-4 py-2.5 text-xs text-muted">
                   <span>{nf.format(noWa.length)} without WhatsApp will be skipped — you can send them an SMS campaign instead.</span>
                   <Button
                     type="button"
@@ -165,7 +222,11 @@ export function PasteAudience(props: {
           audienceQuery=""
           audienceSize={sendTo.length}
           groups={groups}
-          sample={{ name: sample?.name ?? "Sir/Madam", service: "website" }}
+          sample={{
+            name: sampleEntry?.name ?? sampleLead?.name ?? "Sir/Madam",
+            service: sampleLead?.service ?? "website",
+            fields: sampleLead?.fields
+          }}
           linkBase={props.linkBase}
           rate={props.rate}
           balance={props.balance}
