@@ -315,7 +315,8 @@ export function buildServer(ctx: McpContext) {
       .max(5000)
       .optional()
       .describe("This person's own SMS/WhatsApp/email text. Use {link} where the tracking link goes (added at the end if left out)."),
-    subject: z.string().max(200).optional().describe("Their own email subject")
+    subject: z.string().max(200).optional().describe("Their own email subject"),
+    emailBody: z.string().max(10000).optional().describe("Their own email body (email campaigns use this; SMS/WhatsApp use message)")
   });
 
   /** Only leads from this workspace; returns the valid ids. */
@@ -404,7 +405,7 @@ export function buildServer(ctx: McpContext) {
         .returning({ id: schema.leadLists.id });
       const added = await addLeads(
         list.id,
-        items.map((l) => ({ leadId: l.id, reason: l.reason, message: l.message, subject: l.subject }))
+        items.map((l) => ({ leadId: l.id, reason: l.reason, message: l.message, subject: l.subject, emailBody: l.emailBody }))
       );
       return ok({
         listId: list.id,
@@ -450,6 +451,7 @@ export function buildServer(ctx: McpContext) {
         if (it.reason !== undefined) patch.reason = it.reason;
         if (it.message !== undefined) patch.message = it.message || null;
         if (it.subject !== undefined) patch.subject = it.subject || null;
+        if (it.emailBody !== undefined) patch.emailBody = it.emailBody || null;
         if (Object.keys(patch).length) {
           await db
             .update(LI)
@@ -460,7 +462,9 @@ export function buildServer(ctx: McpContext) {
       }
       const added = await addLeads(
         list.id,
-        items.filter((i) => !existing.has(i.id)).map((l) => ({ leadId: l.id, reason: l.reason, message: l.message, subject: l.subject }))
+        items
+          .filter((i) => !existing.has(i.id))
+          .map((l) => ({ leadId: l.id, reason: l.reason, message: l.message, subject: l.subject, emailBody: l.emailBody }))
       );
       return ok({ listId: list.id, added, updated, skippedUnknownIds: a.leads.length - items.length, url: adminUrl(`/leads/lists/${list.id}`) });
     }

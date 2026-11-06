@@ -97,7 +97,11 @@ export async function saveItemMessage(itemId: number, _: ListState, formData: Fo
     String(formData.get("subject") ?? "")
       .trim()
       .slice(0, 200) || null;
-  await db.update(LI).set({ message, subject }).where(eq(LI.id, itemId));
+  const emailBody =
+    String(formData.get("emailBody") ?? "")
+      .trim()
+      .slice(0, 10000) || null;
+  await db.update(LI).set({ message, subject, emailBody }).where(eq(LI.id, itemId));
   revalidatePath(`/leads/lists/${item.listId}`);
   return { ok: message ? "Saved" : "Cleared — they'll get the shared message" };
 }

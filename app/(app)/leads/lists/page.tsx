@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { desc, eq, sql } from "drizzle-orm";
-import { Bookmark, Bot, MessageSquareText, Sparkles } from "lucide-react";
+import { Bookmark, Bot, FileSpreadsheet, MessageSquareText, Sparkles, Upload } from "lucide-react";
 import { db, schema } from "@/db";
 import { requireAccess } from "@/lib/auth";
 import { nf, timeAgo } from "@/lib/utils";
@@ -28,11 +28,19 @@ export default async function ListsPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Saved lists</h1>
-        <p className="mt-1 text-sm text-muted">
-          Hand-picked groups of leads — by you from Leads filters, or by an AI that analysed them. Send a campaign to just one list.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Saved lists</h1>
+          <p className="mt-1 text-sm text-muted">
+            Hand-picked groups of leads — by you from Leads filters, or by an AI that analysed them. Send a campaign to just one list.
+          </p>
+        </div>
+        <Link
+          href="/leads/lists/upload"
+          className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-accent px-4 text-sm font-medium text-white hover:bg-[#5a83ff]"
+        >
+          <Upload className="h-4 w-4" /> Upload Excel / CSV
+        </Link>
       </div>
 
       {lists.length === 0 ? (
@@ -62,6 +70,10 @@ export default async function ListsPage() {
                   {l.source === "ai" ? (
                     <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] text-accent-soft">
                       <Bot className="h-3 w-3" /> AI
+                    </span>
+                  ) : l.source === "file" ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-success/15 px-2 py-0.5 text-[11px] text-success">
+                      <FileSpreadsheet className="h-3 w-3" /> File
                     </span>
                   ) : (
                     <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-muted">Manual</span>

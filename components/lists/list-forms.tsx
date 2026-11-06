@@ -89,21 +89,44 @@ export function DeleteList({ id, name }: { id: number; name: string }) {
 }
 
 /** One person's own message (shown in the list; campaigns from the list can send it). */
-export function ItemMessage({ id, message, subject, ai }: { id: number; message: string | null; subject: string | null; ai: boolean }) {
+export function ItemMessage({
+  id,
+  message,
+  subject,
+  emailBody,
+  ai
+}: {
+  id: number;
+  message: string | null;
+  subject: string | null;
+  emailBody?: string | null;
+  ai: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [state, action, pending] = useActionState(saveItemMessage.bind(null, id), undefined);
   if (!open)
-    return message ? (
+    return message || emailBody ? (
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="block w-full rounded-xl bg-ink-alt p-2.5 text-left text-xs hover:ring-1 hover:ring-line-strong"
+        className="block w-full space-y-2 rounded-xl bg-ink-alt p-2.5 text-left text-xs hover:ring-1 hover:ring-line-strong"
       >
-        <span className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-2">
-          Own message {ai && <span className="rounded bg-accent/15 px-1 text-accent-soft">AI</span>} · tap to edit
+        <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-2">
+          Their own message {ai && <span className="rounded bg-accent/15 px-1 text-accent-soft">AI</span>} · tap to edit
         </span>
-        {subject && <span className="block font-medium">{subject}</span>}
-        <span className="line-clamp-3 whitespace-pre-wrap text-muted">{message}</span>
+        {message && (
+          <span className="block">
+            <span className="text-[10px] font-semibold text-muted-2">SMS / WhatsApp</span>
+            <span className="line-clamp-3 whitespace-pre-wrap text-muted">{message}</span>
+          </span>
+        )}
+        {(subject || emailBody) && (
+          <span className="block border-t border-line pt-2">
+            <span className="text-[10px] font-semibold text-muted-2">Email</span>
+            {subject && <span className="block font-medium text-fg">{subject}</span>}
+            {emailBody && <span className="line-clamp-2 whitespace-pre-wrap text-muted">{emailBody}</span>}
+          </span>
+        )}
       </button>
     ) : (
       <button type="button" onClick={() => setOpen(true)} className="text-xs text-accent-soft hover:underline">
@@ -112,14 +135,17 @@ export function ItemMessage({ id, message, subject, ai }: { id: number; message:
     );
   return (
     <form action={action} className="space-y-2">
-      <input name="subject" defaultValue={subject ?? ""} placeholder="Email subject (optional)" className={cn(inputClass, "h-8 text-xs")} />
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-2">SMS / WhatsApp</span>
       <textarea
         name="message"
         rows={4}
         defaultValue={message ?? ""}
-        placeholder="Their own message. Use {link} for the tracking link (added at the end if left out)."
+        placeholder="Their own SMS/WhatsApp text. Use {link} for the tracking link (added at the end if left out)."
         className={textareaClass}
       />
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-2">Email</span>
+      <input name="subject" defaultValue={subject ?? ""} placeholder="Email subject (optional)" className={cn(inputClass, "h-8 text-xs")} />
+      <textarea name="emailBody" rows={5} defaultValue={emailBody ?? ""} placeholder="Their own email body (optional)" className={textareaClass} />
       <div className="flex items-center gap-2">
         <Button type="submit" size="sm" disabled={pending}>
           Save

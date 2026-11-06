@@ -47,6 +47,8 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
       .select({
         id: R.id,
         phone: R.phone,
+        text: R.message,
+        subject: R.subject,
         status: R.status,
         error: R.error,
         sentAt: R.sentAt,
@@ -100,11 +102,11 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
             </div>
             <p className="mt-1 text-sm text-muted">
               {c.channel === "email" ? (
-              <>
-                Email · “{c.subject}” · {c.minDelaySec}–{c.maxDelaySec}s gap · max {c.dailyLimit}/day
-                {c.status === "sending" && c.nextSendAt ? ` · next email at ${c.nextSendAt.toLocaleTimeString("en-GB", { timeZone: "Asia/Dhaka" })}` : ""}
-              </>
-            ) : c.channel === "whatsapp" ? (
+                <>
+                  Email · “{c.subject}” · {c.minDelaySec}–{c.maxDelaySec}s gap · max {c.dailyLimit}/day
+                  {c.status === "sending" && c.nextSendAt ? ` · next email at ${c.nextSendAt.toLocaleTimeString("en-GB", { timeZone: "Asia/Dhaka" })}` : ""}
+                </>
+              ) : c.channel === "whatsapp" ? (
                 <>
                   WhatsApp · {c.minDelaySec}–{c.maxDelaySec}s gap · max {c.dailyLimit}/day · 9am–9pm
                   {c.status === "sending" && c.nextSendAt ? ` · next message at ${c.nextSendAt.toLocaleTimeString("en-GB", { timeZone: "Asia/Dhaka" })}` : ""}
@@ -199,7 +201,16 @@ export default async function CampaignPage({ params, searchParams }: PageProps<"
                       "—"
                     )}
                   </td>
-                  <td className="px-3 py-2.5 font-mono text-xs text-muted">{r.phone}</td>
+                  <td className="px-3 py-2.5 font-mono text-xs text-muted">
+                    {r.phone}
+                    <details className="mt-1 font-sans">
+                      <summary className="cursor-pointer text-[11px] text-accent-soft">See message</summary>
+                      <div className="mt-1 max-w-md whitespace-pre-wrap rounded-lg bg-ink-alt p-2 text-xs text-fg">
+                        {r.subject && <b className="block">{r.subject}</b>}
+                        {r.text}
+                      </div>
+                    </details>
+                  </td>
                   <td className="px-3 py-2.5">
                     <span
                       className={cn(

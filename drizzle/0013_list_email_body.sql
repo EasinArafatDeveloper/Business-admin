@@ -1,0 +1,1 @@
+ALTER TABLE "lead_list_items" ADD COLUMN "email_body" text;

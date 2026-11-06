@@ -92,6 +92,13 @@
       "when": 1793897850816,
       "tag": "0012_lead_lists",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793960446027,
+      "tag": "0013_list_email_body",
+      "breakpoints": true
     }
   ]
 }

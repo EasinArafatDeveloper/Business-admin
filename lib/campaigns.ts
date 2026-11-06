@@ -44,10 +44,18 @@ export async function buildAudience(workspaceId: number, filters: LeadFilters, c
   const personal = new Map<number, { message: string | null; subject: string | null }>();
   if (filters.list !== undefined) {
     const items = await db
-      .select({ leadId: schema.leadListItems.leadId, message: schema.leadListItems.message, subject: schema.leadListItems.subject })
+      .select({
+        leadId: schema.leadListItems.leadId,
+        message: schema.leadListItems.message,
+        subject: schema.leadListItems.subject,
+        emailBody: schema.leadListItems.emailBody
+      })
       .from(schema.leadListItems)
       .where(eq(schema.leadListItems.listId, filters.list));
-    for (const it of items) if (it.message?.trim()) personal.set(it.leadId, { message: it.message, subject: it.subject });
+    for (const it of items) {
+      const text = channel === "email" ? it.emailBody?.trim() || it.message?.trim() : it.message?.trim();
+      if (text) personal.set(it.leadId, { message: text, subject: channel === "email" ? it.subject : null });
+    }
   }
 
   const seen = new Set<string>();

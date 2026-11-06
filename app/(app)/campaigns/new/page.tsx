@@ -170,16 +170,20 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
       <div className="inline-flex rounded-xl border border-line bg-surface p-1 text-sm">
         {[
           ["leads", "From leads"],
-          ["paste", "Paste numbers / emails"]
+          ["paste", "Paste numbers / emails"],
+          ["upload", "Upload Excel"]
         ].map(([m, l]) => {
           const p = new URLSearchParams(m === "paste" ? "" : query);
           if (channel !== "sms") p.set("channel", channel);
           if (m === "paste") p.set("mode", "paste");
+          // An uploaded file becomes a saved list (with each person's own message), then comes back here.
+          const href =
+            m === "upload" ? `/leads/lists/upload?then=campaign${channel !== "sms" ? `&channel=${channel}` : ""}` : `/campaigns/new${p.size ? `?${p}` : ""}`;
           return (
             <Link
               key={m}
-              href={`/campaigns/new${p.size ? `?${p}` : ""}`}
-              className={`rounded-lg px-3 py-1.5 ${(m === "paste") === paste ? "bg-accent/15 text-fg" : "text-muted hover:text-fg"}`}
+              href={href}
+              className={`rounded-lg px-3 py-1.5 ${m !== "upload" && (m === "paste") === paste ? "bg-accent/15 text-fg" : "text-muted hover:text-fg"}`}
             >
               {l}
             </Link>

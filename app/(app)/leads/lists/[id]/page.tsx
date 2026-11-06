@@ -127,7 +127,7 @@ export default async function ListPage({ params, searchParams }: PageProps<"/lea
                 </div>
                 {item.reason && <p className="mt-2 text-xs text-muted">{item.reason}</p>}
               </div>
-              <ItemMessage id={item.id} message={item.message} subject={item.subject} ai={list.source === "ai"} />
+              <ItemMessage id={item.id} message={item.message} subject={item.subject} emailBody={item.emailBody} ai={list.source === "ai"} />
               <RemoveItem id={item.id} />
             </div>
           ))}
