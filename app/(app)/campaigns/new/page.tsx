@@ -11,6 +11,7 @@ import { Card } from "@/components/ui";
 import { CampaignForm } from "@/components/campaigns/campaign-form";
 import { CHANNELS, ChannelIcon } from "@/components/campaigns/channel";
 import { StepHead } from "@/components/campaigns/step-head";
+import { PasteAudience } from "@/components/campaigns/paste-audience";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 
@@ -47,8 +48,10 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
   const channel = sp.channel === "whatsapp" || sp.channel === "email" ? sp.channel : "sms";
   const filters = parseFilters(sp);
   const query = filtersToQuery({ ...filters, page: 1 }).replace(/^\?/, "");
+  const paste = sp.mode === "paste";
   const [{ audience, matched, noNumber, duplicate, personalCount }, health, [list]] = await Promise.all([
-    buildAudience(user.workspaceId, filters, channel),
+    // Pasting numbers doesn't need the leads audience at all.
+    paste ? Promise.resolve({ audience: [], matched: 0, noNumber: 0, duplicate: 0, personalCount: 0 }) : buildAudience(user.workspaceId, filters, channel),
     getChannelHealth(user.workspaceId),
     filters.list !== undefined
       ? db
@@ -62,6 +65,7 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
   const withChannel = (c: string, q = query) => {
     const p = new URLSearchParams(q);
     if (c !== "sms") p.set("channel", c);
+    if (paste) p.set("mode", "paste");
     return `/campaigns/new${p.size ? `?${p}` : ""}`;
   };
   const sample = audience[0];
@@ -163,81 +167,114 @@ export default async function NewCampaignPage({ searchParams }: PageProps<"/camp
         )}
       </section>
 
-      {/* 2 · Audience */}
-      <section className="space-y-3">
-        <StepHead n={2} title="Audience" />
-        <Card className="p-5">
-          <div className="flex flex-wrap items-start justify-between gap-5">
-            <div>
-              <div className="text-3xl font-semibold tracking-tight">{nf.format(audience.length)}</div>
-              <div className="text-sm text-muted">people will get this {CHANNELS[channel].label}</div>
-              <div className="mt-2 text-xs text-muted-2">
-                {nf.format(matched)} leads matched · {nf.format(noNumber)} without a valid{" "}
-                {channel === "email" ? "email address" : channel === "whatsapp" ? "WhatsApp/mobile" : "mobile"} · {nf.format(duplicate)} duplicates removed ·
-                opted-out excluded
-              </div>
-            </div>
+      <div className="inline-flex rounded-xl border border-line bg-surface p-1 text-sm">
+        {[
+          ["leads", "From leads"],
+          ["paste", "Paste numbers / emails"]
+        ].map(([m, l]) => {
+          const p = new URLSearchParams(m === "paste" ? "" : query);
+          if (channel !== "sms") p.set("channel", channel);
+          if (m === "paste") p.set("mode", "paste");
+          return (
             <Link
-              href={`/leads${query ? `?${query}` : ""}`}
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line-strong px-3 text-sm hover:border-accent/60"
+              key={m}
+              href={`/campaigns/new${p.size ? `?${p}` : ""}`}
+              className={`rounded-lg px-3 py-1.5 ${(m === "paste") === paste ? "bg-accent/15 text-fg" : "text-muted hover:text-fg"}`}
             >
-              <SlidersHorizontal className="h-4 w-4" /> {noFilters ? "Choose in Leads" : "Change filters"}
+              {l}
             </Link>
-          </div>
+          );
+        })}
+      </div>
 
-          {noFilters ? (
-            <div className="mt-5 border-t border-line pt-4">
-              <div className="mb-2 text-xs text-warning">No filters yet — this would go to all leads. Pick a quick audience:</div>
-              <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-                {PRESETS.map(([label, desc, p]) => (
-                  <Link
-                    key={label}
-                    href={withChannel(channel, new URLSearchParams(p).toString())}
-                    className="rounded-xl border border-line bg-ink-alt p-3 transition-colors hover:border-accent/60"
-                  >
-                    <div className="text-sm font-medium">{label}</div>
-                    <div className="text-[11px] text-muted-2">{desc}</div>
-                  </Link>
-                ))}
+      {paste ? (
+        <PasteAudience
+          channel={channel}
+          linkBase={linkBase()}
+          rate={health.sms.rate}
+          balance={health.sms.balance}
+          waConnected={waReady}
+          senders={health.email.senders}
+        />
+      ) : (
+        <>
+          {/* 2 · Audience */}
+          <section className="space-y-3">
+            <StepHead n={2} title="Audience" />
+            <Card className="p-5">
+              <div className="flex flex-wrap items-start justify-between gap-5">
+                <div>
+                  <div className="text-3xl font-semibold tracking-tight">{nf.format(audience.length)}</div>
+                  <div className="text-sm text-muted">people will get this {CHANNELS[channel].label}</div>
+                  <div className="mt-2 text-xs text-muted-2">
+                    {nf.format(matched)} leads matched · {nf.format(noNumber)} without a valid{" "}
+                    {channel === "email" ? "email address" : channel === "whatsapp" ? "WhatsApp/mobile" : "mobile"} · {nf.format(duplicate)} duplicates removed
+                    · opted-out excluded
+                  </div>
+                </div>
+                <Link
+                  href={`/leads${query ? `?${query}` : ""}`}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line-strong px-3 text-sm hover:border-accent/60"
+                >
+                  <SlidersHorizontal className="h-4 w-4" /> {noFilters ? "Choose in Leads" : "Change filters"}
+                </Link>
               </div>
-            </div>
-          ) : (
-            <div className="mt-4 flex flex-wrap gap-1.5">
-              {chips.map(([k, v]) => (
-                <span key={k} className="rounded-full border border-line bg-ink-alt px-2.5 py-1 text-xs">
-                  <span className="text-muted-2">{k}:</span> {v}
-                </span>
-              ))}
-              <Link href={withChannel(channel, "")} className="rounded-full px-2.5 py-1 text-xs text-muted hover:text-fg">
-                Clear
-              </Link>
-            </div>
-          )}
-        </Card>
-      </section>
 
-      {/* 3 · Message  ·  4 · Review */}
-      <CampaignForm
-        key={channel}
-        channel={channel}
-        audienceQuery={query}
-        audienceSize={audience.length}
-        groups={groupAudience(audience)}
-        sample={{ name: sample?.name ?? "Sign of Modesty", service: sample?.service ?? "E-commerce Website" }}
-        linkBase={linkBase()}
-        rate={health.sms.rate}
-        balance={health.sms.balance}
-        waConnected={waReady}
-        senders={health.email.senders}
-        personal={
-          personalCount > 0 && personalSample?.personal
-            ? {
-                count: personalCount,
-                sample: { name: personalSample.name ?? "", message: personalSample.personal.message, subject: personalSample.personal.subject }
-              }
-            : undefined
-        }
-      />
+              {noFilters ? (
+                <div className="mt-5 border-t border-line pt-4">
+                  <div className="mb-2 text-xs text-warning">No filters yet — this would go to all leads. Pick a quick audience:</div>
+                  <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+                    {PRESETS.map(([label, desc, p]) => (
+                      <Link
+                        key={label}
+                        href={withChannel(channel, new URLSearchParams(p).toString())}
+                        className="rounded-xl border border-line bg-ink-alt p-3 transition-colors hover:border-accent/60"
+                      >
+                        <div className="text-sm font-medium">{label}</div>
+                        <div className="text-[11px] text-muted-2">{desc}</div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 flex flex-wrap gap-1.5">
+                  {chips.map(([k, v]) => (
+                    <span key={k} className="rounded-full border border-line bg-ink-alt px-2.5 py-1 text-xs">
+                      <span className="text-muted-2">{k}:</span> {v}
+                    </span>
+                  ))}
+                  <Link href={withChannel(channel, "")} className="rounded-full px-2.5 py-1 text-xs text-muted hover:text-fg">
+                    Clear
+                  </Link>
+                </div>
+              )}
+            </Card>
+          </section>
+
+          {/* 3 · Message  ·  4 · Review */}
+          <CampaignForm
+            key={channel}
+            channel={channel}
+            audienceQuery={query}
+            audienceSize={audience.length}
+            groups={groupAudience(audience)}
+            sample={{ name: sample?.name ?? "Sign of Modesty", service: sample?.service ?? "E-commerce Website" }}
+            linkBase={linkBase()}
+            rate={health.sms.rate}
+            balance={health.sms.balance}
+            waConnected={waReady}
+            senders={health.email.senders}
+            personal={
+              personalCount > 0 && personalSample?.personal
+                ? {
+                    count: personalCount,
+                    sample: { name: personalSample.name ?? "", message: personalSample.personal.message, subject: personalSample.personal.subject }
+                  }
+                : undefined
+            }
+          />
+        </>
+      )}
     </div>
   );
 }

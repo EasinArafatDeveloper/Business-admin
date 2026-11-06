@@ -136,6 +136,8 @@ http
         for (const n of numbers.slice(0, 50)) {
           const [r] = (await sock.onWhatsApp(jidOf(n)).catch(() => [])) ?? [];
           results[digits(n)] = Boolean(r?.exists);
+          // Gentle pace so a big check doesn't look like a scraper.
+          await new Promise((ok) => setTimeout(ok, 150 + Math.random() * 150));
         }
         return send(res, 200, { results });
       }

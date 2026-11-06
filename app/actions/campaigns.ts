@@ -10,7 +10,8 @@ import { createCampaignWithRecipients } from "@/lib/campaigns";
 import { parseFilters } from "@/lib/leads-query";
 import { normalizeBdMobile, renderTemplate } from "@/lib/sms-text";
 import { sendSms } from "@/lib/sms";
-import { waSend } from "@/lib/wa";
+import { waCheck, waSend } from "@/lib/wa";
+import { type PastedEntry, parsePasted } from "@/lib/paste-audience";
 import { normalizeEmail, sendEmail } from "@/lib/email";
 import { safeUrl } from "@/lib/tracking";
 
@@ -61,6 +62,19 @@ export async function createCampaign(_: ActionState, formData: FormData): Promis
   const q = new URLSearchParams(d.audienceQuery);
   const filters = parseFilters({ ...Object.fromEntries(q.entries()), has: q.getAll("has") });
 
+  // Pasted numbers / emails: read again here (never trust the browser's list), drop the ones you excluded.
+  const pastedText = String(formData.get("pastedText") ?? "");
+  let pasted: PastedEntry[] | undefined;
+  if (pastedText.trim()) {
+    let exclude: string[] = [];
+    try {
+      exclude = JSON.parse(String(formData.get("exclude") ?? "[]"));
+    } catch {}
+    const skip = new Set(Array.isArray(exclude) ? exclude.map(String) : []);
+    pasted = parsePasted(pastedText, d.channel).entries.filter((e) => !skip.has(e.to));
+    if (pasted.length === 0) return { error: "No valid numbers left to send to" };
+  }
+
   let id: number;
   try {
     id = await createCampaignWithRecipients({
@@ -72,6 +86,8 @@ export async function createCampaign(_: ActionState, formData: FormData): Promis
       audienceQuery: d.audienceQuery,
       ratePerMinute: d.ratePerMinute,
       filters,
+      pasted,
+      saveAsLeads: formData.get("saveAsLeads") === "on",
       cleanNames: d.cleanNames === "on",
       channel: d.channel,
       minDelaySec: Math.min(d.minDelaySec, d.maxDelaySec),
@@ -127,6 +143,17 @@ export async function cancelCampaign(id: number) {
 }
 
 /** Sends the message to your own number first (same channel). The link in a test goes straight to the destination. */
+/** Which of these pasted numbers have WhatsApp (up to 300 per check). */
+export async function checkWhatsappNumbers(numbers: string[]): Promise<{ error?: string; results?: Record<string, boolean> }> {
+  await requireAction("campaigns");
+  const list = [...new Set(numbers.map((n) => normalizeBdMobile(n)).filter((n): n is string => Boolean(n)))];
+  if (list.length === 0) return { error: "No Bangladeshi mobile numbers to check" };
+  if (list.length > 300) return { error: "Check up to 300 numbers at a time" };
+  const results = await waCheck(list);
+  if (!results) return { error: "WhatsApp isn't connected — scan the QR in Channels first" };
+  return { results };
+}
+
 export async function sendTestSms(id: number, _: ActionState, formData: FormData): Promise<ActionState> {
   const o = await owned(id);
   if (!o) return { error: "Campaign not found" };

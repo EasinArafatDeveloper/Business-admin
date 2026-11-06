@@ -1,5 +1,6 @@
 import "server-only";
-import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, or, sql } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { db, schema } from "@/db";
 import { type LeadFilters, whereFor } from "@/lib/leads-query";
 import { normalizeBdMobile, renderTemplate, smsParts } from "@/lib/sms-text";
@@ -7,6 +8,7 @@ import { FATAL_CODES, sendSms } from "@/lib/sms";
 import { linkBase, newCode } from "@/lib/tracking";
 import { waSend } from "@/lib/wa";
 import { normalizeEmail, sendEmail } from "@/lib/email";
+import { type PastedEntry, prettyBd } from "@/lib/paste-audience";
 
 const L = schema.leads;
 const C = schema.campaigns;
@@ -87,6 +89,93 @@ export async function buildAudience(workspaceId: number, filters: LeadFilters, c
   return { audience, matched: rows.length, noNumber, duplicate, personalCount: audience.filter((a) => a.personal).length };
 }
 
+/**
+ * Audience from pasted numbers / emails. Each one is matched to an existing lead when possible
+ * (so clicks and replies show on that lead); people who opted out of this channel are skipped;
+ * the rest can be saved as new "manual" leads.
+ */
+export async function buildPastedAudience(workspaceId: number, entries: PastedEntry[], channel: Channel, saveAsLeads: boolean) {
+  const keyOf = (to: string) => (channel === "email" ? to.toLowerCase() : to.slice(-10));
+  const keys = [...new Set(entries.map((e) => keyOf(e.to)))];
+  const digits10 = (c: AnyPgColumn) => sql<string>`right(regexp_replace(coalesce(${c}, ''), '\\D', '', 'g'), 10)`;
+  const found = keys.length
+    ? await db
+        .select({
+          id: L.id,
+          name: L.pageName,
+          service: L.primaryService,
+          phone: digits10(L.phone),
+          whatsapp: digits10(L.whatsapp),
+          email: sql<string>`lower(coalesce(${L.email}, ''))`,
+          smsOptOut: L.smsOptOut,
+          waOptOut: L.waOptOut,
+          emailOptOut: L.emailOptOut
+        })
+        .from(L)
+        .where(
+          and(
+            eq(L.workspaceId, workspaceId),
+            channel === "email"
+              ? or(...keys.map((k) => sql`lower(coalesce(${L.email}, '')) like ${`%${k}%`}`))!
+              : sql`(${inArray(digits10(L.phone), keys)} or ${inArray(digits10(L.whatsapp), keys)})`
+          )
+        )
+    : [];
+  const byKey = new Map<string, (typeof found)[number]>();
+  for (const l of found) {
+    if (channel === "email") {
+      for (const k of keys) if (l.email.includes(k) && !byKey.has(k)) byKey.set(k, l);
+    } else {
+      for (const k of [l.whatsapp, l.phone]) if (k && keys.includes(k) && !byKey.has(k)) byKey.set(k, l);
+    }
+  }
+
+  const audience: {
+    leadId: number | null;
+    phone: string;
+    name: string | null;
+    service: string | null;
+    personal?: { message: string; subject: string | null };
+  }[] = [];
+  let optedOut = 0;
+  let matched = 0;
+  const toCreate: PastedEntry[] = [];
+  for (const e of entries) {
+    const lead = byKey.get(keyOf(e.to));
+    if (lead) {
+      const out = channel === "whatsapp" ? lead.waOptOut : channel === "email" ? lead.emailOptOut : lead.smsOptOut;
+      if (out) {
+        optedOut++;
+        continue;
+      }
+      matched++;
+      audience.push({ leadId: lead.id, phone: e.to, name: e.name ?? lead.name, service: lead.service });
+    } else {
+      audience.push({ leadId: null, phone: e.to, name: e.name, service: null });
+      if (saveAsLeads) toCreate.push(e);
+    }
+  }
+
+  if (toCreate.length) {
+    const created = await db
+      .insert(L)
+      .values(
+        toCreate.map((e) => ({
+          workspaceId,
+          source: "manual",
+          externalKey: `manual:${e.to}`,
+          pageName: e.name ?? (channel === "email" ? e.to : prettyBd(e.to)),
+          ...(channel === "email" ? { email: e.to } : { phone: prettyBd(e.to), whatsapp: channel === "whatsapp" ? prettyBd(e.to) : null })
+        }))
+      )
+      .onConflictDoNothing()
+      .returning({ id: L.id, key: L.externalKey });
+    const idOf = new Map(created.map((c) => [c.key, c.id]));
+    for (const a of audience) if (a.leadId === null) a.leadId = idOf.get(`manual:${a.phone}`) ?? null;
+  }
+  return { audience, matched, optedOut, created: toCreate.length };
+}
+
 /** Creates the campaign and one recipient row (unique code + final message) per person. */
 export async function createCampaignWithRecipients(input: {
   workspaceId: number;
@@ -107,9 +196,14 @@ export async function createCampaignWithRecipients(input: {
   senderId?: number;
   /** Send each lead their own saved message (from a list) instead of the shared one, when they have one. */
   usePersonal?: boolean;
+  /** Pasted numbers / emails instead of lead filters. */
+  pasted?: PastedEntry[];
+  saveAsLeads?: boolean;
 }) {
   const channel = input.channel ?? "sms";
-  const { audience } = await buildAudience(input.workspaceId, input.filters, channel);
+  const { audience } = input.pasted
+    ? await buildPastedAudience(input.workspaceId, input.pasted, channel, input.saveAsLeads ?? true)
+    : await buildAudience(input.workspaceId, input.filters, channel);
   if (audience.length === 0)
     throw new Error(
       channel === "email" ? "No leads with a valid email address match these filters." : "No leads with a valid Bangladeshi mobile number match these filters."

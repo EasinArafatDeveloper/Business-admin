@@ -42,3 +42,22 @@ export async function waSend(to: string, text: string): Promise<{ ok: boolean; r
     return { ok: false, result: "disconnected", info: e instanceof Error ? e.message : "WhatsApp service unreachable" };
   }
 }
+
+/** Which numbers have WhatsApp (asks in batches of 50). null = WhatsApp isn't connected. */
+export async function waCheck(numbers: string[]): Promise<Record<string, boolean> | null> {
+  const out: Record<string, boolean> = {};
+  for (let i = 0; i < numbers.length; i += 50) {
+    try {
+      const r = await call<{ results?: Record<string, boolean>; ok?: boolean }>("/check", {
+        method: "POST",
+        body: { numbers: numbers.slice(i, i + 50) },
+        timeoutMs: 60_000
+      });
+      if (!r.results) return null;
+      Object.assign(out, r.results);
+    } catch {
+      return null;
+    }
+  }
+  return out;
+}

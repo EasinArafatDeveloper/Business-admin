@@ -43,7 +43,8 @@ export function CampaignForm({
   balance,
   waConnected = true,
   senders = [],
-  personal
+  personal,
+  pasted
 }: {
   channel: Channel;
   audienceQuery: string;
@@ -57,6 +58,8 @@ export function CampaignForm({
   senders?: SenderOption[];
   /** From a saved list where some leads have their own message. */
   personal?: { count: number; sample: { name: string; message: string; subject: string | null } };
+  /** Pasted numbers/emails (the server reads the text again); exclude = numbers without WhatsApp. */
+  pasted?: { text: string; exclude: string[]; saveAsLeads: boolean };
 }) {
   const [usePersonal, setUsePersonal] = useState(Boolean(personal));
   const wa = channel === "whatsapp";
@@ -108,6 +111,13 @@ export function CampaignForm({
     <form action={action} className="grid grid-cols-1 gap-5 lg:grid-cols-5">
       <input type="hidden" name="audienceQuery" value={audienceQuery} />
       <input type="hidden" name="channel" value={channel} />
+      {pasted && (
+        <>
+          <input type="hidden" name="pastedText" value={pasted.text} />
+          <input type="hidden" name="exclude" value={JSON.stringify(pasted.exclude)} />
+          {pasted.saveAsLeads && <input type="hidden" name="saveAsLeads" value="on" />}
+        </>
+      )}
       {usePersonal && personal && <input type="hidden" name="usePersonal" value="on" />}
       {em && <input type="hidden" name="dailyLimit" value={perDay} />}
       {paced && (
