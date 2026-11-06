@@ -94,6 +94,7 @@ export const FIELDS = {
   subject: "Their email subject",
   emailBody: "Their email body",
   reason: "Why this lead (note)",
+  offer: "What you'll offer",
   industry: "Industry",
   address: "Address",
   page: "Facebook page"
@@ -123,6 +124,7 @@ export function guessMapping(sheet: Sheet): Mapping {
     pick(/(whatsapp|mobile|phone|number|contact|cell)/, /(open|link|message|chat)/) ??
     h.findIndex((_, i) => sample(i).filter((v) => /(\+?88)?01[3-9]\d{8}/.test(v.replace(/\D/g, ""))).length >= 3);
   m.name = pick(/(business|page name|shop|company|brand|store)/) ?? pick(/(^name$|full name|client|customer)/);
+  m.offer = pick(/(entry offer|first sale|offer|package)/, /(upsell|later)/);
   m.reason = pick(/(why|reason|note|insight)/);
   m.industry = pick(/(industry|category|niche)/);
   m.address = pick(/(address|location|city|area)/);

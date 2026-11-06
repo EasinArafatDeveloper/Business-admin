@@ -118,3 +118,20 @@ export async function removeItem(itemId: number) {
   await db.delete(LI).where(eq(LI.id, itemId));
   revalidatePath(`/leads/lists/${item.listId}`);
 }
+
+/** Move one person to another offer group (or clear it). */
+export async function setItemGroup(itemId: number, tag: string) {
+  const user = await requireAction("leads");
+  const [item] = await db
+    .select({ id: LI.id, listId: LI.listId })
+    .from(LI)
+    .innerJoin(LL, eq(LL.id, LI.listId))
+    .where(and(eq(LI.id, itemId), eq(LL.workspaceId, user.workspaceId)))
+    .limit(1);
+  if (!item) return;
+  await db
+    .update(LI)
+    .set({ tag: tag.trim().slice(0, 60) || null })
+    .where(eq(LI.id, itemId));
+  revalidatePath(`/leads/lists/${item.listId}`);
+}

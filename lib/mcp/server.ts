@@ -6,6 +6,7 @@ import { db, schema } from "@/db";
 import { LEAD_STATUSES } from "@/lib/constants";
 import { parseFilters, whereFor } from "@/lib/leads-query";
 import { addLeads } from "@/lib/lists";
+import { offerGroup } from "@/lib/offer";
 import { createCampaignWithRecipients, dhakaNow } from "@/lib/campaigns";
 import { getBilling, invoicePrefix, invoiceUrl, nextInvoiceNumber, publicToken } from "@/lib/billing";
 import { fmtDate, invoiceState, parseTaka, taka, totals } from "@/lib/money";
@@ -41,7 +42,8 @@ const leadFilterShape = {
     .optional()
     .describe("Only leads that have these"),
   minScore: z.number().int().min(0).max(100).optional().describe("Only leads with at least this score"),
-  list: z.number().int().optional().describe("Only leads in this saved list (see list_lead_lists)")
+  list: z.number().int().optional().describe("Only leads in this saved list (see list_lead_lists)"),
+  tag: z.string().max(60).optional().describe("With list: only its entries in this offer group, e.g. Website / AI automation / WhatsApp automation")
 };
 type LeadFilterInput = {
   query?: string;
@@ -53,6 +55,7 @@ type LeadFilterInput = {
   has?: string[];
   minScore?: number;
   list?: number;
+  tag?: string;
 };
 const toFilters = (f: LeadFilterInput) =>
   parseFilters({
@@ -64,7 +67,8 @@ const toFilters = (f: LeadFilterInput) =>
     source: f.source,
     has: f.has ?? [],
     minScore: f.minScore !== undefined ? String(f.minScore) : undefined,
-    list: f.list !== undefined ? String(f.list) : undefined
+    list: f.list !== undefined ? String(f.list) : undefined,
+    tag: f.tag
   });
 
 /**
@@ -316,7 +320,8 @@ export function buildServer(ctx: McpContext) {
       .optional()
       .describe("This person's own SMS/WhatsApp/email text. Use {link} where the tracking link goes (added at the end if left out)."),
     subject: z.string().max(200).optional().describe("Their own email subject"),
-    emailBody: z.string().max(10000).optional().describe("Their own email body (email campaigns use this; SMS/WhatsApp use message)")
+    emailBody: z.string().max(10000).optional().describe("Their own email body (email campaigns use this; SMS/WhatsApp use message)"),
+    offer: z.string().max(300).optional().describe("What you would offer them, e.g. AI Messenger Chatbot — ৳10,000 (its group is worked out automatically)")
   });
 
   /** Only leads from this workspace; returns the valid ids. */
@@ -372,7 +377,16 @@ export function buildServer(ctx: McpContext) {
         .limit(1);
       if (!list) return fail("No saved list with that id");
       const items = await db
-        .select({ leadId: LI.leadId, name: L.pageName, status: L.status, reason: LI.reason, message: LI.message, subject: LI.subject })
+        .select({
+          leadId: LI.leadId,
+          name: L.pageName,
+          status: L.status,
+          reason: LI.reason,
+          offer: LI.offer,
+          group: LI.tag,
+          message: LI.message,
+          subject: LI.subject
+        })
         .from(LI)
         .innerJoin(L, eq(L.id, LI.leadId))
         .where(eq(LI.listId, list.id))
@@ -405,7 +419,15 @@ export function buildServer(ctx: McpContext) {
         .returning({ id: schema.leadLists.id });
       const added = await addLeads(
         list.id,
-        items.map((l) => ({ leadId: l.id, reason: l.reason, message: l.message, subject: l.subject, emailBody: l.emailBody }))
+        items.map((l) => ({
+          leadId: l.id,
+          reason: l.reason,
+          message: l.message,
+          subject: l.subject,
+          emailBody: l.emailBody,
+          offer: l.offer,
+          tag: offerGroup(l.offer)
+        }))
       );
       return ok({
         listId: list.id,
@@ -452,6 +474,10 @@ export function buildServer(ctx: McpContext) {
         if (it.message !== undefined) patch.message = it.message || null;
         if (it.subject !== undefined) patch.subject = it.subject || null;
         if (it.emailBody !== undefined) patch.emailBody = it.emailBody || null;
+        if (it.offer !== undefined) {
+          patch.offer = it.offer || null;
+          patch.tag = offerGroup(it.offer);
+        }
         if (Object.keys(patch).length) {
           await db
             .update(LI)
@@ -464,7 +490,15 @@ export function buildServer(ctx: McpContext) {
         list.id,
         items
           .filter((i) => !existing.has(i.id))
-          .map((l) => ({ leadId: l.id, reason: l.reason, message: l.message, subject: l.subject, emailBody: l.emailBody }))
+          .map((l) => ({
+            leadId: l.id,
+            reason: l.reason,
+            message: l.message,
+            subject: l.subject,
+            emailBody: l.emailBody,
+            offer: l.offer,
+            tag: offerGroup(l.offer)
+          }))
       );
       return ok({ listId: list.id, added, updated, skippedUnknownIds: a.leads.length - items.length, url: adminUrl(`/leads/lists/${list.id}`) });
     }

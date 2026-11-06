@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FileSpreadsheet, Loader2, Mail, MessageCircle, Phone, Upload } from "lucide-react";
 import { normalizeBdMobile, sampleLink, smsParts } from "@/lib/sms-text";
 import { prettyBd } from "@/lib/paste-audience";
+import { offerGroup } from "@/lib/offer";
 import { cn, nf } from "@/lib/utils";
 import { Button, Card, Label, inputClass } from "@/components/ui";
 
@@ -16,6 +17,7 @@ const FIELDS = {
   subject: "Their email subject",
   emailBody: "Their email body",
   reason: "Why this lead (note)",
+  offer: "What you'll offer",
   industry: "Industry",
   address: "Address",
   page: "Facebook page"
@@ -84,7 +86,17 @@ export function UploadList({ rate, linkBase, then, channel }: { rate: number; li
       const message = get(r, "message");
       // As sent: the tracking link is added at the end when the message doesn't have {link}.
       const sms = message ? smsParts(/\{link\}/i.test(message) ? message.replace(/\{link\}/gi, link) : `${message} ${link}`) : null;
-      return { name: get(r, "name"), phone, email, message, reason: get(r, "reason"), sms, subject: get(r, "subject"), emailBody: get(r, "emailBody") };
+      return {
+        name: get(r, "name"),
+        phone,
+        email,
+        message,
+        reason: get(r, "reason"),
+        sms,
+        subject: get(r, "subject"),
+        emailBody: get(r, "emailBody"),
+        offer: get(r, "offer")
+      };
     });
   }, [preview, mapping, link]);
   const usable = people.filter((p) => p.phone || p.email);
@@ -185,6 +197,12 @@ export function UploadList({ rate, linkBase, then, channel }: { rate: number; li
                   </span>
                 )}
               </div>
+              {p.offer && (
+                <div className="mt-2 flex items-center gap-1.5">
+                  <span className="rounded-full bg-violet/15 px-2 py-0.5 text-[11px] font-medium text-violet">{offerGroup(p.offer)}</span>
+                  <span className="truncate text-[11px] text-muted-2">{p.offer}</span>
+                </div>
+              )}
               {p.reason && <p className="mt-2 text-xs text-muted-2">{p.reason}</p>}
               {p.message ? (
                 <p className="mt-2 whitespace-pre-wrap rounded-xl bg-ink-alt p-3 text-sm leading-relaxed">

@@ -99,6 +99,13 @@
       "when": 1793960446027,
       "tag": "0013_list_email_body",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793961274455,
+      "tag": "0014_list_offer_tag",
+      "breakpoints": true
     }
   ]
 }

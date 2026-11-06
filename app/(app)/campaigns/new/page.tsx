@@ -32,7 +32,8 @@ const FILTER_LABELS: Record<string, string> = {
   has: "Has",
   minScore: "Score ≥",
   minAds: "Ads ≥",
-  list: "Saved list"
+  list: "Saved list",
+  tag: "Offer group"
 };
 
 const PRESETS: [string, string, Record<string, string>][] = [

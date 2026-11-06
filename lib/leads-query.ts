@@ -24,6 +24,8 @@ export type LeadFilters = {
   minAds?: number;
   /** Only leads saved in this list (Leads → Saved lists). */
   list?: number;
+  /** With a list: only its entries in this offer group (e.g. "Website"). */
+  tag?: string;
   sort: "score" | "followers" | "ads" | "newest" | "name";
   page: number;
 };
@@ -56,6 +58,7 @@ export function parseFilters(sp: Params): LeadFilters {
     minScore: num(one(sp.minScore)),
     minAds: num(one(sp.minAds)),
     list: num(one(sp.list)),
+    tag: one(sp.tag)?.slice(0, 60),
     sort: (SORTS as readonly string[]).includes(sort ?? "") ? (sort as LeadFilters["sort"]) : "score",
     page: Math.max(1, num(one(sp.page)) ?? 1)
   };
@@ -102,7 +105,12 @@ export function whereFor(workspaceId: number, f: LeadFilters): SQL {
   if (f.bd) conds.push(eq(L.inBangladesh, f.bd === "yes"));
   if (f.minScore !== undefined) conds.push(gte(L.score, f.minScore));
   if (f.minAds !== undefined) conds.push(gte(L.activeAds, f.minAds));
-  if (f.list !== undefined) conds.push(sql`exists (select 1 from lead_list_items li where li.list_id = ${f.list} and li.lead_id = ${L.id})`);
+  if (f.list !== undefined)
+    conds.push(
+      f.tag
+        ? sql`exists (select 1 from lead_list_items li where li.list_id = ${f.list} and li.lead_id = ${L.id} and li.tag = ${f.tag})`
+        : sql`exists (select 1 from lead_list_items li where li.list_id = ${f.list} and li.lead_id = ${L.id})`
+    );
   for (const h of f.has) {
     const col = { phone: L.phone, whatsapp: L.whatsapp, email: L.email, website: L.website }[h];
     conds.push(and(isNotNull(col), ne(col, "")));

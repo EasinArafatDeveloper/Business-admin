@@ -7,6 +7,7 @@ import { prettyBd } from "@/lib/paste-audience";
 import { normalizeBdMobile } from "@/lib/sms-text";
 import { addLeads } from "@/lib/lists";
 import type { Mapping, Sheet } from "@/lib/sheet";
+import { offerGroup } from "@/lib/offer";
 
 const L = schema.leads;
 
@@ -34,6 +35,7 @@ export function mapRows(sheet: Sheet, m: Mapping) {
       subject: get(r, m.subject).slice(0, 200) || null,
       emailBody: get(r, m.emailBody).slice(0, 10000) || null,
       reason: get(r, m.reason).slice(0, 1000) || null,
+      offer: get(r, m.offer).slice(0, 300) || null,
       industry: get(r, m.industry).slice(0, 120) || null,
       address: get(r, m.address).slice(0, 400) || null,
       page: get(r, m.page).slice(0, 500) || null
@@ -141,7 +143,7 @@ export async function importSheetAsList(opts: { workspaceId: number; userId: num
     const id = findId(r);
     if (!id || seen.has(id)) continue;
     seen.add(id);
-    items.push({ leadId: id, reason: r.reason, message: r.message, subject: r.subject, emailBody: r.emailBody });
+    items.push({ leadId: id, reason: r.reason, message: r.message, subject: r.subject, emailBody: r.emailBody, offer: r.offer, tag: offerGroup(r.offer) });
   }
   const added = await addLeads(list.id, items);
   return { listId: list.id, added, matched: rows.length - fresh.length, created: fresh.length, skipped, duplicates: rows.length - items.length };

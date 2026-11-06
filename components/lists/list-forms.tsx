@@ -2,7 +2,8 @@
 
 import { useActionState, useState, useTransition } from "react";
 import { BookmarkPlus, Trash2, X } from "lucide-react";
-import { deleteList, removeItem, renameList, saveFilterToList, saveItemMessage } from "@/app/actions/lists";
+import { deleteList, removeItem, renameList, saveFilterToList, saveItemMessage, setItemGroup } from "@/app/actions/lists";
+import { OFFER_GROUPS } from "@/lib/offer";
 import { cn, nf } from "@/lib/utils";
 import { Button, Label, inputClass } from "@/components/ui";
 
@@ -173,5 +174,50 @@ export function RemoveItem({ id }: { id: number }) {
     >
       <X className="h-4 w-4" />
     </button>
+  );
+}
+
+/** The offer group badge on one person — tap to move them to another group. */
+export function ItemGroup({ id, tag, offer, groups }: { id: number; tag: string | null; offer: string | null; groups: string[] }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(tag ?? "");
+  const [pending, start] = useTransition();
+  const options = [...new Set([...OFFER_GROUPS, ...groups])];
+  if (!editing)
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="mt-2 flex max-w-full items-center gap-1.5 text-left"
+        title={offer ?? "Set an offer group"}
+      >
+        <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium", tag ? "bg-violet/15 text-violet" : "bg-surface-2 text-muted-2")}>
+          {tag ?? "+ offer group"}
+        </span>
+        {offer && <span className="truncate text-[11px] text-muted-2">{offer}</span>}
+      </button>
+    );
+  return (
+    <div className="mt-2 flex items-center gap-1.5">
+      <input
+        list={`groups-${id}`}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="e.g. Website"
+        autoFocus
+        className={cn(inputClass, "h-8 w-44 text-xs")}
+      />
+      <datalist id={`groups-${id}`}>
+        {options.map((g) => (
+          <option key={g} value={g} />
+        ))}
+      </datalist>
+      <Button size="sm" disabled={pending} onClick={() => start(async () => (await setItemGroup(id, value), setEditing(false)))}>
+        Save
+      </Button>
+      <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+        Cancel
+      </Button>
+    </div>
   );
 }

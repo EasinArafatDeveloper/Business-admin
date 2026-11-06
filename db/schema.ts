@@ -651,8 +651,15 @@ export const leadListItems = pgTable(
     subject: text("subject"),
     /** Their own email body (email campaigns use this; SMS/WhatsApp use `message`). */
     emailBody: text("email_body"),
+    /** What you plan to offer them (e.g. "AI Messenger Chatbot — ৳10,000") and its group for filtering (e.g. "AI automation"). */
+    offer: text("offer"),
+    tag: text("tag"),
     addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow()
   },
-  (t) => [uniqueIndex("lead_list_items_unique").on(t.listId, t.leadId), index("lead_list_items_lead_idx").on(t.leadId)]
+  (t) => [
+    uniqueIndex("lead_list_items_unique").on(t.listId, t.leadId),
+    index("lead_list_items_lead_idx").on(t.leadId),
+    index("lead_list_items_tag_idx").on(t.listId, t.tag)
+  ]
 );
 export type LeadList = typeof leadLists.$inferSelect;

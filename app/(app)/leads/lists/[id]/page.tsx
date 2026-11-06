@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, asc, eq } from "drizzle-orm";
-import { ArrowLeft, Bot, Filter, Mail, MessageCircle, MessageSquareText } from "lucide-react";
+import { ArrowLeft, Bot, Filter, Mail, MessageCircle, MessageSquareText, Tag } from "lucide-react";
+import { autoTagFromDetails } from "@/lib/lists";
+import { cn } from "@/lib/utils";
 import { db, schema } from "@/db";
 import { requireAccess } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { nf, timeAgo } from "@/lib/utils";
 import { Card, PriorityText, StatusBadge } from "@/components/ui";
-import { DeleteList, ItemMessage, RemoveItem, RenameList } from "@/components/lists/list-forms";
+import { DeleteList, ItemGroup, ItemMessage, RemoveItem, RenameList } from "@/components/lists/list-forms";
 
 export async function generateMetadata({ params }: PageProps<"/leads/lists/[id]">) {
   return { title: `List #${(await params).id}` };
@@ -27,7 +29,9 @@ export default async function ListPage({ params, searchParams }: PageProps<"/lea
     .where(and(eq(LL.id, id), eq(LL.workspaceId, user.workspaceId)))
     .limit(1);
   if (!list) notFound();
-  const items = await db
+  // Lists uploaded before offer groups existed get grouped from their saved file data (once).
+  await autoTagFromDetails(id);
+  const all = await db
     .select({
       item: LI,
       lead: { id: L.id, name: L.pageName, status: L.status, priority: L.priority, industry: L.industry, phone: L.phone, whatsapp: L.whatsapp, email: L.email }
@@ -37,6 +41,12 @@ export default async function ListPage({ params, searchParams }: PageProps<"/lea
     .where(eq(LI.listId, id))
     .orderBy(asc(LI.position), asc(LI.id));
 
+  // Offer groups (e.g. Website / AI automation / WhatsApp automation) with counts, for the filter buttons.
+  const groups = [...all.reduce((m, i) => m.set(i.item.tag ?? "", (m.get(i.item.tag ?? "") ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1]);
+  const tag = typeof sp.tag === "string" ? sp.tag : null;
+  const items = tag === null ? all : all.filter((i) => (i.item.tag ?? "") === (tag === "none" ? "" : tag));
+  const tagHref = (t: string | null) => `/leads/lists/${id}${t === null ? "" : `?tag=${encodeURIComponent(t)}`}`;
+  const tagQuery = tag && tag !== "none" ? `&tag=${encodeURIComponent(tag)}` : "";
   const personal = items.filter((i) => i.item.message?.trim()).length;
   const campaigns = can(user, "campaigns");
   const added = typeof sp.added === "string" ? Number(sp.added) : null;
@@ -65,21 +75,44 @@ export default async function ListPage({ params, searchParams }: PageProps<"/lea
           </div>
           {list.description && <p className="mt-1 max-w-3xl text-sm text-muted">{list.description}</p>}
           <p className="mt-1 text-xs text-muted-2">
-            {nf.format(items.length)} leads · {nf.format(personal)} with their own message · updated {timeAgo(list.updatedAt)}
+            {nf.format(all.length)} leads · {nf.format(all.filter((i) => i.item.message?.trim()).length)} with their own message · updated{" "}
+            {timeAgo(list.updatedAt)}
           </p>
         </div>
         <Link
-          href={`/leads?list=${id}`}
+          href={`/leads?list=${id}${tagQuery}`}
           className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-line-strong px-3 text-sm hover:border-accent/60"
         >
           <Filter className="h-4 w-4" /> Open in Leads
         </Link>
       </div>
 
+      {groups.length > 1 || (groups.length === 1 && groups[0][0] !== "") ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1 text-xs text-muted-2">
+            <Tag className="h-3.5 w-3.5" /> Offer:
+          </span>
+          {[[null, "All", all.length] as const, ...groups.map(([g, n]) => [g === "" ? "none" : g, g === "" ? "No group" : g, n] as const)].map(
+            ([t, label, n]) => (
+              <Link
+                key={label}
+                href={tagHref(t)}
+                className={cn(
+                  "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-sm",
+                  tag === t ? "border-accent bg-accent/15 text-fg" : "border-line text-muted hover:text-fg"
+                )}
+              >
+                {label} <span className="text-xs text-muted-2">{n}</span>
+              </Link>
+            )
+          )}
+        </div>
+      ) : null}
+
       {campaigns && items.length > 0 && (
         <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
           <div className="text-sm">
-            <b>Send to this list</b>
+            <b>{tag && tag !== "none" ? `Send to “${tag}” (${nf.format(items.length)})` : `Send to this list (${nf.format(items.length)})`}</b>
             <span className="text-muted">
               {personal > 0 ? ` — ${nf.format(personal)} people get their own message, the rest get yours.` : " — everyone gets the message you write."}
             </span>
@@ -94,7 +127,7 @@ export default async function ListPage({ params, searchParams }: PageProps<"/lea
               return (
                 <Link
                   key={ch as string}
-                  href={`/campaigns/new?list=${id}${ch === "sms" ? "" : `&channel=${ch}`}`}
+                  href={`/campaigns/new?list=${id}${tagQuery}${ch === "sms" ? "" : `&channel=${ch}`}`}
                   className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-accent px-3 text-sm font-medium text-white hover:bg-[#5a83ff]"
                 >
                   <I className="h-4 w-4" /> {label as string}
@@ -125,6 +158,7 @@ export default async function ListPage({ params, searchParams }: PageProps<"/lea
                 <div className="mt-1 truncate text-xs text-muted-2">
                   {[lead.whatsapp || lead.phone, lead.email].filter(Boolean).join(" · ") || "No contact"}
                 </div>
+                <ItemGroup id={item.id} tag={item.tag} offer={item.offer} groups={groups.map(([g]) => g).filter(Boolean)} />
                 {item.reason && <p className="mt-2 text-xs text-muted">{item.reason}</p>}
               </div>
               <ItemMessage id={item.id} message={item.message} subject={item.subject} emailBody={item.emailBody} ai={list.source === "ai"} />
