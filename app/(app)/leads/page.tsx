@@ -51,7 +51,7 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
       </div>
 
       <FilterBar options={options} lists={lists} />
-      <LeadsTable rows={rows} />
+      <LeadsTable rows={rows} lists={lists} />
 
       {total > 0 && (
         <div className="flex items-center justify-between text-sm text-muted">

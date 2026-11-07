@@ -6,6 +6,8 @@ import { db, schema } from "@/db";
 import { LEAD_STATUSES } from "@/lib/constants";
 import { parseFilters, whereFor } from "@/lib/leads-query";
 import { addLeads } from "@/lib/lists";
+import { bulkUpdateLeads } from "@/lib/lead-bulk";
+import { ACTIVITY_KINDS, type ActivityType, MANUAL_TYPES, logActivity } from "@/lib/activity";
 import { offerGroup } from "@/lib/offer";
 import { createCampaignWithRecipients, dhakaNow } from "@/lib/campaigns";
 import { getBilling, invoicePrefix, invoiceUrl, nextInvoiceNumber, publicToken } from "@/lib/billing";
@@ -43,7 +45,8 @@ const leadFilterShape = {
     .describe("Only leads that have these"),
   minScore: z.number().int().min(0).max(100).optional().describe("Only leads with at least this score"),
   list: z.number().int().optional().describe("Only leads in this saved list (see list_lead_lists)"),
-  tag: z.string().max(60).optional().describe("With list: only its entries in this offer group, e.g. Website / AI automation / WhatsApp automation")
+  tag: z.string().max(60).optional().describe("With list: only its entries in this offer group, e.g. Website / AI automation / WhatsApp automation"),
+  label: z.string().max(40).optional().describe("Only leads carrying this tag, e.g. hot or batch-1 (lead tags, see bulk_update_leads)")
 };
 type LeadFilterInput = {
   query?: string;
@@ -56,6 +59,7 @@ type LeadFilterInput = {
   minScore?: number;
   list?: number;
   tag?: string;
+  label?: string;
 };
 const toFilters = (f: LeadFilterInput) =>
   parseFilters({
@@ -68,7 +72,8 @@ const toFilters = (f: LeadFilterInput) =>
     has: f.has ?? [],
     minScore: f.minScore !== undefined ? String(f.minScore) : undefined,
     list: f.list !== undefined ? String(f.list) : undefined,
-    tag: f.tag
+    tag: f.tag,
+    label: f.label
   });
 
 /**
@@ -216,6 +221,8 @@ export function buildServer(ctx: McpContext) {
           phone: l.phone,
           whatsapp: l.whatsapp,
           email: l.email,
+          tags: l.tags,
+          lastContactedAt: l.lastContactedAt,
           ...(a.detailed
             ? {
                 category: l.category,
@@ -255,11 +262,17 @@ export function buildServer(ctx: McpContext) {
         .limit(1);
       if (!lead) return fail("No lead with that id");
       const history = await db
-        .select({ type: schema.leadActivities.type, body: schema.leadActivities.body, at: schema.leadActivities.createdAt })
+        .select({
+          type: schema.leadActivities.type,
+          channel: schema.leadActivities.channel,
+          body: schema.leadActivities.body,
+          meta: schema.leadActivities.meta,
+          at: schema.leadActivities.createdAt
+        })
         .from(schema.leadActivities)
         .where(eq(schema.leadActivities.leadId, lead.id))
         .orderBy(desc(schema.leadActivities.createdAt))
-        .limit(15);
+        .limit(40);
       const { details, ...rest } = lead;
       return ok({ ...rest, formAnswers: details, history, url: adminUrl(`/leads/${lead.id}`) });
     }
@@ -306,6 +319,56 @@ export function buildServer(ctx: McpContext) {
       if (!lead) return fail("No lead with that id");
       await db.insert(schema.leadActivities).values({ workspaceId: ws, leadId: lead.id, userId: user.id, type: "note", body: a.note, meta: { via: "ai" } });
       return ok({ saved: true });
+    }
+  );
+
+  tool(
+    "bulk_update_leads",
+    {
+      title: "Update many leads at once",
+      description:
+        "Change status, add/remove tags, and/or add the same note on up to 500 leads in one call. Each change is written to every lead's timeline. Tags are short lower-case labels (e.g. hot, clinic, batch-1); filter by them with search_leads label.",
+      section: "leads",
+      write: true,
+      input: {
+        ids: z.array(z.number().int()).min(1).max(500),
+        status: z.enum(LEAD_STATUSES).optional(),
+        addTags: z.array(z.string().max(40)).max(20).optional(),
+        removeTags: z.array(z.string().max(40)).max(20).optional(),
+        note: z.string().max(2000).optional().describe("Same note added to each lead")
+      }
+    },
+    async (a) => {
+      if (!a.status && !a.addTags?.length && !a.removeTags?.length && !a.note) return fail("Nothing to change: give status, addTags, removeTags or note.");
+      const r = await bulkUpdateLeads(ws, user.id, a.ids, { status: a.status, addTags: a.addTags, removeTags: a.removeTags, note: a.note, via: "ai" });
+      const missing = a.ids.filter((id) => !r.ids.includes(id));
+      return ok({ updated: r.updated, tagsAdded: r.tagsAdded, tagsRemoved: r.tagsRemoved, ...(missing.length ? { notFound: missing } : {}) });
+    }
+  );
+
+  tool(
+    "log_activity",
+    {
+      title: "Log a touch on a lead",
+      description:
+        "Record something that already happened outside the app, so the lead's timeline stays complete: a WhatsApp sent from a phone, a call, a meeting, or a reply they sent. This does NOT send anything. Logging an outgoing touch moves a 'new' lead to 'contacted'; a reply moves 'new'/'contacted' to 'interested'.",
+      section: "leads",
+      write: true,
+      input: {
+        id: z.number().int().describe("Lead id"),
+        type: z.enum(MANUAL_TYPES as [ActivityType, ...ActivityType[]]).describe(
+          MANUAL_TYPES.map((t) => `${t} = ${ACTIVITY_KINDS[t].label}`).join("; ")
+        ),
+        body: z.string().max(4000).describe("What was sent or said"),
+        at: z.string().datetime({ offset: true }).optional().describe("When it happened (ISO 8601). Defaults to now; cannot be in the future.")
+      }
+    },
+    async (a) => {
+      const at = a.at ? new Date(a.at) : new Date();
+      if (at.getTime() > Date.now() + 60_000) return fail("'at' cannot be in the future");
+      const id = await logActivity({ workspaceId: ws, leadId: a.id, userId: user.id, type: a.type, body: a.body, meta: { via: "ai" }, at });
+      if (!id) return fail("No lead with that id");
+      return ok({ logged: true, activityId: id, url: adminUrl(`/leads/${a.id}`) });
     }
   );
 

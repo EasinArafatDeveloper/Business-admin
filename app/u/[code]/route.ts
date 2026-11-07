@@ -44,7 +44,7 @@ export async function POST(_: Request, ctx: RouteContext<"/u/[code]">) {
       .where(and(eq(L.id, r.leadId), eq(L.workspaceId, r.workspaceId), eq(L.emailOptOut, false)))
       .returning({ id: L.id });
     if (lead) {
-      await db.insert(schema.leadActivities).values({ workspaceId: r.workspaceId, leadId: r.leadId, type: "email_optout", body: "Unsubscribed from emails" });
+      await db.insert(schema.leadActivities).values({ workspaceId: r.workspaceId, leadId: r.leadId, type: "email_optout", channel: "email", body: "Unsubscribed from emails" });
     }
   }
   return page("Unsubscribed", "<h1>You're unsubscribed</h1><p>You won't receive any more emails from us. Sorry for the bother.</p>");

@@ -132,6 +132,7 @@ export function FilterBar({ options, lists = [] }: { options: FilterOptions; lis
             </option>
           ))}
         </select>
+        {options.tags.length > 0 && sel("label", "Tag", options.tags, (v) => `#${v}`)}
         {sel("priority", "Priority", options.priority)}
         {sel("industry", "Industry", options.industry)}
         {sel("service", "Best-fit service", options.service)}

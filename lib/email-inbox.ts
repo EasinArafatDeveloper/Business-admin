@@ -70,6 +70,7 @@ async function saveReply(sender: EmailSender, m: { from: string; name: string | 
     workspaceId: sender.workspaceId,
     leadId: m.leadId,
     type: "email_reply",
+    channel: "email",
     body: optOut ? `Replied “${m.body.slice(0, 80)}” by email → opted out of email` : `Email reply: ${m.body.slice(0, 500)}`
   });
   await db

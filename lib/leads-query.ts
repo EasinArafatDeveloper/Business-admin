@@ -26,6 +26,8 @@ export type LeadFilters = {
   list?: number;
   /** With a list: only its entries in this offer group (e.g. "Website"). */
   tag?: string;
+  /** Leads carrying this tag (leads.tags), e.g. "hot". */
+  label?: string;
   sort: "score" | "followers" | "ads" | "newest" | "name";
   page: number;
 };
@@ -59,6 +61,7 @@ export function parseFilters(sp: Params): LeadFilters {
     minAds: num(one(sp.minAds)),
     list: num(one(sp.list)),
     tag: one(sp.tag)?.slice(0, 60),
+    label: one(sp.label)?.toLowerCase().slice(0, 40),
     sort: (SORTS as readonly string[]).includes(sort ?? "") ? (sort as LeadFilters["sort"]) : "score",
     page: Math.max(1, num(one(sp.page)) ?? 1)
   };
@@ -102,6 +105,7 @@ export function whereFor(workspaceId: number, f: LeadFilters): SQL {
   if (f.platform) conds.push(eq(L.websitePlatform, f.platform));
   if (f.orders) conds.push(ilike(L.ordersVia, `%${f.orders}%`));
   if (f.source) conds.push(eq(L.source, f.source));
+  if (f.label) conds.push(sql`${L.tags} @> array[${f.label}]::text[]`);
   if (f.bd) conds.push(eq(L.inBangladesh, f.bd === "yes"));
   if (f.minScore !== undefined) conds.push(gte(L.score, f.minScore));
   if (f.minAds !== undefined) conds.push(gte(L.activeAds, f.minAds));
@@ -154,6 +158,7 @@ export async function findLeads(workspaceId: number, f: LeadFilters) {
         ordersVia: L.ordersVia,
         activeAds: L.activeAds,
         status: L.status,
+        tags: L.tags,
         source: L.source,
         createdAt: L.createdAt
       })
@@ -180,16 +185,24 @@ export async function filterOptions(workspaceId: number) {
       .groupBy(c)
       .orderBy(sql`count(*) desc`)
       .limit(60);
-  const [priority, industry, service, size, webType, platform, source] = await Promise.all([
+  const tagsQ = db
+    .select({ value: sql<string | null>`t.tag`, count: sql<number>`count(*)::int` })
+    .from(sql`${L}, unnest(${L.tags}) as t(tag)`)
+    .where(eq(L.workspaceId, workspaceId))
+    .groupBy(sql`t.tag`)
+    .orderBy(sql`count(*) desc`)
+    .limit(100);
+  const [priority, industry, service, size, webType, platform, source, tags] = await Promise.all([
     col(L.priority),
     col(L.industry),
     col(L.primaryService),
     col(L.sizeTier),
     col(L.websiteType),
     col(L.websitePlatform),
-    col(L.source)
+    col(L.source),
+    tagsQ
   ]);
-  return { priority, industry, service, size, webType, platform, source };
+  return { priority, industry, service, size, webType, platform, source, tags };
 }
 
 export type FilterOptions = Awaited<ReturnType<typeof filterOptions>>;

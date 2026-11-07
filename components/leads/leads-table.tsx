@@ -8,6 +8,7 @@ import { LEAD_STATUSES, type LeadStatus } from "@/lib/constants";
 import { setLeadsStatus } from "@/app/actions/leads";
 import { PriorityText, STATUS_STYLES, StatusBadge } from "@/components/ui";
 import { cn, nf } from "@/lib/utils";
+import { BulkTools } from "@/components/leads/bulk-tools";
 
 export type LeadRow = {
   id: number;
@@ -24,9 +25,10 @@ export type LeadRow = {
   email: string | null;
   activeAds: number | null;
   status: LeadStatus;
+  tags: string[];
 };
 
-export function LeadsTable({ rows }: { rows: LeadRow[] }) {
+export function LeadsTable({ rows, lists = [] }: { rows: LeadRow[]; lists?: { id: number; name: string }[] }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [pending, startTransition] = useTransition();
@@ -63,6 +65,7 @@ export function LeadsTable({ rows }: { rows: LeadRow[] }) {
               {STATUS_STYLES[s].label}
             </button>
           ))}
+          <BulkTools ids={[...selected]} lists={lists} />
           <button onClick={() => setSelected(new Set())} className="ml-auto text-xs text-muted hover:text-fg">
             Clear
           </button>
@@ -102,7 +105,14 @@ export function LeadsTable({ rows }: { rows: LeadRow[] }) {
                   <Link href={`/leads/${r.id}`} className="block truncate font-medium text-fg hover:text-accent-soft">
                     {r.pageName ?? "Untitled"}
                   </Link>
-                  <span className="block truncate text-[11px] text-muted-2">{r.category}</span>
+                  <span className="block truncate text-[11px] text-muted-2">
+                    {r.category}
+                    {r.tags.map((t) => (
+                      <Link key={t} href={`/leads?label=${encodeURIComponent(t)}`} className="ml-1.5 text-accent-soft hover:underline">
+                        #{t}
+                      </Link>
+                    ))}
+                  </span>
                 </td>
                 <td className="px-3 py-2.5">
                   <div className="font-medium">{r.score ?? "—"}</div>

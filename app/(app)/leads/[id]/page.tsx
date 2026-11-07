@@ -1,12 +1,28 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { and, desc, eq } from "drizzle-orm";
-import { ArrowLeft, ExternalLink, Globe, Mail, Megaphone, MessageCircle, PanelsTopLeft, Phone } from "lucide-react";
+import {
+  ArrowDownLeft,
+  ArrowLeft,
+  ArrowUpRight,
+  CalendarCheck,
+  ExternalLink,
+  Globe,
+  Mail,
+  Megaphone,
+  MessageCircle,
+  MessageSquareText,
+  MousePointerClick,
+  PanelsTopLeft,
+  Phone,
+  StickyNote
+} from "lucide-react";
 import { db, schema } from "@/db";
 import { requireAccess } from "@/lib/auth";
-import { digitsOnly, nf, timeAgo } from "@/lib/utils";
+import { cn, digitsOnly, nf, timeAgo } from "@/lib/utils";
 import { Card, PriorityText } from "@/components/ui";
-import { CopyButton, NoteForm, SmsOptOutToggle, StatusPicker } from "@/components/leads/lead-controls";
+import { CopyButton, NoteForm, SmsOptOutToggle, StatusPicker, TagEditor } from "@/components/leads/lead-controls";
+import { kindOf } from "@/lib/activity";
 import { ConvertLeadButton } from "@/components/billing/forms";
 import { can } from "@/lib/permissions";
 
@@ -30,12 +46,14 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
 
   const A = schema.leadActivities;
   const activity = await db
-    .select({ id: A.id, type: A.type, body: A.body, meta: A.meta, createdAt: A.createdAt, user: schema.users.name })
+    .select({ id: A.id, type: A.type, channel: A.channel, body: A.body, meta: A.meta, createdAt: A.createdAt, user: schema.users.name })
     .from(A)
     .leftJoin(schema.users, eq(schema.users.id, A.userId))
     .where(eq(A.leadId, lead.id))
     .orderBy(desc(A.createdAt))
-    .limit(100);
+    .limit(200);
+  const sentCount = activity.filter((a) => kindOf(a.type).dir === "out" && a.type !== "meeting").length;
+  const replyCount = activity.filter((a) => a.type.endsWith("_reply")).length;
 
   const [client] = await db
     .select({ id: schema.clients.id })
@@ -99,11 +117,14 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
               </>
             )}
           </p>
+          <div className="mt-2">
+            <TagEditor leadId={lead.id} tags={lead.tags} />
+          </div>
         </div>
         <div className="flex flex-col items-end gap-2">
           <div className="flex items-center gap-2">
             {can(user, "clients") && <ConvertLeadButton leadId={lead.id} existingClientId={client?.id} />}
-            <StatusPicker leadId={lead.id} status={lead.status} />
+            <StatusPicker key={lead.status} leadId={lead.id} status={lead.status} />
           </div>
           <div className="flex gap-1.5">
             <SmsOptOutToggle leadId={lead.id} optOut={lead.smsOptOut} />
@@ -177,31 +198,66 @@ export default async function LeadPage({ params }: PageProps<"/leads/[id]">) {
           )}
 
           <Card className="p-5">
-            <h2 className="text-sm font-medium">Notes & history</h2>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-sm font-medium">Timeline</h2>
+              <span className="text-xs text-muted">
+                {sentCount} sent · {replyCount} {replyCount === 1 ? "reply" : "replies"}
+                {lead.lastContactedAt && <> · last contact {timeAgo(lead.lastContactedAt)}</>}
+              </span>
+            </div>
             <div className="mt-3">
               <NoteForm leadId={lead.id} />
             </div>
-            <ol className="mt-5 space-y-3 border-l border-line pl-4">
-              {activity.map((a) => (
-                <li key={a.id} className="relative">
-                  <span className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-accent" />
-                  <div className="text-[11px] text-muted-2">
-                    {a.type === "note"
-                      ? "Note"
-                      : a.type === "status"
-                        ? "Status"
-                        : a.type === "form"
-                          ? "Website form"
-                          : a.type === "click"
-                            ? "Link click"
-                            : a.type === "wa_reply"
-                              ? "WhatsApp reply"
-                              : a.type}
-                    {a.user ? ` · ${a.user}` : ""} · {timeAgo(a.createdAt)}
-                  </div>
-                  <p className="whitespace-pre-wrap text-sm">{a.body}</p>
-                </li>
-              ))}
+            <ol className="mt-5 space-y-4 border-l border-line pl-5">
+              {activity.map((a) => {
+                const k = kindOf(a.type);
+                const ch = a.channel ?? k.channel;
+                const Icon =
+                  a.type === "note"
+                    ? StickyNote
+                    : a.type === "click"
+                      ? MousePointerClick
+                      : a.type === "meeting"
+                        ? CalendarCheck
+                        : ch === "whatsapp"
+                          ? MessageCircle
+                          : ch === "email"
+                            ? Mail
+                            : ch === "phone"
+                              ? Phone
+                              : ch === "sms"
+                                ? MessageSquareText
+                                : null;
+                const meta = (a.meta ?? {}) as { campaignId?: number; campaign?: string; via?: string };
+                return (
+                  <li key={a.id} className="relative">
+                    <span
+                      className={cn(
+                        "absolute -left-[31px] top-0 flex h-5 w-5 items-center justify-center rounded-full border border-line bg-surface",
+                        k.dir === "in" ? "text-success" : k.dir === "out" ? "text-accent-soft" : "text-muted"
+                      )}
+                    >
+                      {Icon ? <Icon className="h-3 w-3" /> : <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+                    </span>
+                    <div className="flex flex-wrap items-center gap-x-1.5 text-[11px] text-muted-2">
+                      <span className={cn("inline-flex items-center gap-0.5 font-medium", k.dir === "in" ? "text-success" : k.dir === "out" ? "text-fg" : "text-muted")}>
+                        {k.dir === "in" && <ArrowDownLeft className="h-3 w-3" />}
+                        {k.dir === "out" && <ArrowUpRight className="h-3 w-3" />}
+                        {k.label}
+                      </span>
+                      {meta.campaignId && (
+                        <Link href={`/campaigns/${meta.campaignId}`} className="hover:text-accent-soft">
+                          · {meta.campaign ?? `Campaign #${meta.campaignId}`}
+                        </Link>
+                      )}
+                      {a.user && <span>· {a.user}</span>}
+                      {meta.via === "ai" && <span>· by AI</span>}
+                      <span title={a.createdAt.toLocaleString("en-GB")}>· {timeAgo(a.createdAt)}</span>
+                    </div>
+                    {a.body && <p className="mt-0.5 line-clamp-4 whitespace-pre-wrap text-sm">{a.body}</p>}
+                  </li>
+                );
+              })}
               {activity.length === 0 && <li className="text-sm text-muted-2">Nothing yet.</li>}
             </ol>
           </Card>

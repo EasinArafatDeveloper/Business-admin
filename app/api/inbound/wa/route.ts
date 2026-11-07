@@ -56,6 +56,7 @@ export async function POST(request: Request) {
       workspaceId: ws.id,
       leadId: lead.id,
       type: "wa_reply",
+      channel: "whatsapp",
       body: optOut ? `Replied “${text}” on WhatsApp → opted out of WhatsApp` : `WhatsApp reply: ${text}`
     });
     await db

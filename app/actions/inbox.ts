@@ -84,6 +84,7 @@ export async function replyToThread(sender: string, _: ReplyState, formData: For
       leadId: last.leadId,
       userId: user.id,
       type: last.channel === "email" ? "email_out" : "wa_out",
+      channel: last.channel,
       body: `You replied by ${last.channel === "email" ? "email" : "WhatsApp"}: ${text}`
     });
   }

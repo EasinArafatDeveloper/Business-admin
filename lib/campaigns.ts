@@ -335,14 +335,27 @@ async function claim(campaignId: number, n: number) {
   return [...rows];
 }
 
-async function markSent(campaignId: number, r: { id: number; lead_id: number | null }, code: string | null) {
+async function markSent(campaignId: number, r: { id: number; lead_id: number | null; message: string; subject: string | null }, code: string | null) {
   const now = new Date();
   await db.update(R).set({ status: "sent", sentAt: now, providerCode: code, error: null }).where(eq(R.id, r.id));
-  await db
+  const [camp] = await db
     .update(C)
     .set({ sentCount: sql`${C.sentCount} + 1` })
-    .where(eq(C.id, campaignId));
-  if (r.lead_id) await db.update(L).set({ lastContactedAt: now }).where(eq(L.id, r.lead_id));
+    .where(eq(C.id, campaignId))
+    .returning({ workspaceId: C.workspaceId, channel: C.channel, name: C.name });
+  if (r.lead_id && camp) {
+    await db.update(L).set({ lastContactedAt: now }).where(eq(L.id, r.lead_id));
+    // One timeline row per message, so the lead page shows exactly what they got and when.
+    await db.insert(schema.leadActivities).values({
+      workspaceId: camp.workspaceId,
+      leadId: r.lead_id,
+      type: `${camp.channel === "whatsapp" ? "wa" : camp.channel}_sent`,
+      channel: camp.channel,
+      body: ((r.subject ? `${r.subject}\n` : "") + r.message).slice(0, 1000),
+      meta: { campaignId, campaign: camp.name, recipientId: r.id },
+      createdAt: now
+    });
+  }
 }
 
 async function markFailed(campaignId: number, recipientId: number, code: string | null, error: string) {

@@ -11,6 +11,7 @@ import {
   timestamp,
   uniqueIndex
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { LEAD_STATUSES } from "@/lib/constants";
 
 export { LEAD_STATUSES, type LeadStatus } from "@/lib/constants";
@@ -115,6 +116,8 @@ export const leads = pgTable(
     inBangladesh: boolean("in_bangladesh"),
 
     status: leadStatus("status").notNull().default("new"),
+    /** Quick labels you add by hand or in bulk, e.g. "clinic", "hot", "batch-1". Lower-case. */
+    tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
 
     /** SMS engagement — only verified human clicks count (see lib/tracking.ts). */
     smsOptOut: boolean("sms_opt_out").notNull().default(false),
@@ -137,7 +140,8 @@ export const leads = pgTable(
     index("leads_industry_idx").on(t.workspaceId, t.industry),
     index("leads_service_idx").on(t.workspaceId, t.primaryService),
     index("leads_score_idx").on(t.workspaceId, t.score),
-    index("leads_source_idx").on(t.workspaceId, t.source, t.createdAt)
+    index("leads_source_idx").on(t.workspaceId, t.source, t.createdAt),
+    index("leads_tags_idx").using("gin", t.tags)
   ]
 );
 
@@ -152,8 +156,13 @@ export const leadActivities = pgTable(
       .notNull()
       .references(() => leads.id, { onDelete: "cascade" }),
     userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
-    /** note | status | created | form */
+    /**
+     * note | status | created | form | click | sms_sent | wa_sent | email_sent | wa_reply | email_reply |
+     * wa_out | email_out | email_optout | call | meeting (one row per touch, never edited)
+     */
     type: text("type").notNull(),
+    /** sms | whatsapp | email | phone — when the touch happened on a channel. */
+    channel: text("channel"),
     body: text("body"),
     meta: jsonb("meta").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
