@@ -711,6 +711,10 @@ export const sequences = pgTable(
     /** Where {link} goes (tracked per person). */
     destinationUrl: text("destination_url"),
     emailSenderId: integer("email_sender_id").references(() => emailSenders.id, { onDelete: "set null" }),
+    /** Day 1 is this date (Dhaka) for everyone added before it; later additions start the day they're added. */
+    startDate: text("start_date"),
+    /** The saved list made with it (plans from the AI). */
+    listId: integer("list_id").references(() => leadLists.id, { onDelete: "set null" }),
     createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
@@ -728,6 +732,8 @@ export const sequenceSteps = pgTable(
       .references(() => sequences.id, { onDelete: "cascade" }),
     position: integer("position").notNull(),
     day: integer("day").notNull().default(1),
+    /** Dhaka time the step is due ("10:00"); empty = start of the day (automatic ones still wait for 9am). */
+    sendTime: text("send_time"),
     /** sms | whatsapp | email | call */
     channel: text("channel").notNull(),
     /** auto = the app sends it · manual = it becomes a task on the Today screen */
@@ -807,3 +813,36 @@ export type Sequence = typeof sequences.$inferSelect;
 export type SequenceStep = typeof sequenceSteps.$inferSelect;
 export type Enrollment = typeof enrollments.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
+
+/**
+ * One lead's own message for one step of a sequence (the cells of the Plan screen).
+ * draft → approved → queued (app sends) | task (on Today) → sent; or skipped / cancelled.
+ */
+export const planMessages = pgTable(
+  "plan_messages",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sequenceId: integer("sequence_id")
+      .notNull()
+      .references(() => sequences.id, { onDelete: "cascade" }),
+    stepId: integer("step_id")
+      .notNull()
+      .references(() => sequenceSteps.id, { onDelete: "cascade" }),
+    leadId: integer("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+    subject: text("subject"),
+    body: text("body").notNull(),
+    status: text("status").notNull().default("draft"),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    recipientId: integer("recipient_id").references(() => campaignRecipients.id, { onDelete: "set null" }),
+    taskId: integer("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [uniqueIndex("plan_messages_unique").on(t.stepId, t.leadId), index("plan_messages_seq_idx").on(t.sequenceId, t.leadId)]
+);
+export type PlanMessage = typeof planMessages.$inferSelect;

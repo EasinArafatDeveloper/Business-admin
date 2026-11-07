@@ -10,6 +10,8 @@ import { SequenceBuilder } from "@/components/sequences/sequence-builder";
 import { SequenceStatus } from "@/components/sequences/sequence-status";
 import { ApproveWaiting, EnrollList, StopButton } from "@/components/sequences/enroll-controls";
 import { cn, nf, timeAgo } from "@/lib/utils";
+import { getPlan } from "@/lib/plans";
+import { PlanGrid } from "@/components/sequences/plan-grid";
 
 export async function generateMetadata({ params }: PageProps<"/sequences/[id]">) {
   return { title: `Sequence #${(await params).id}` };
@@ -23,7 +25,7 @@ const STATE: Record<string, [string, string]> = {
   done: ["Finished", "text-muted"]
 };
 
-export default async function SequencePage({ params }: PageProps<"/sequences/[id]">) {
+export default async function SequencePage({ params, searchParams }: PageProps<"/sequences/[id]">) {
   const user = await requireAccess("campaigns");
   const id = Number((await params).id);
   if (!Number.isInteger(id)) notFound();
@@ -34,6 +36,10 @@ export default async function SequencePage({ params }: PageProps<"/sequences/[id
     .where(and(eq(S.id, id), eq(S.workspaceId, user.workspaceId)))
     .limit(1);
   if (!seq) notFound();
+  const tabParam = (await searchParams).tab;
+  // Plans made by the AI open on the Plan grid; hand-made sequences on their steps.
+  const tab = tabParam === "plan" || tabParam === "steps" ? tabParam : seq.listId ? "plan" : "steps";
+  const plan = tab === "plan" ? await getPlan(user.workspaceId, seq.id) : null;
 
   const ST = schema.sequenceSteps;
   const E = schema.enrollments;
@@ -64,7 +70,7 @@ export default async function SequencePage({ params }: PageProps<"/sequences/[id
   const counts = enrolled.reduce<Record<string, number>>((m, r) => ({ ...m, [r.e.state]: (m[r.e.state] ?? 0) + 1 }), {});
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
+    <div className={cn("mx-auto space-y-5", tab === "plan" ? "max-w-7xl" : "max-w-5xl")}>
       <Link href="/sequences" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-fg">
         <ArrowLeft className="h-4 w-4" /> Sequences
       </Link>
@@ -72,80 +78,123 @@ export default async function SequencePage({ params }: PageProps<"/sequences/[id
         <h1 className="text-2xl font-semibold tracking-tight">{seq.name}</h1>
         <SequenceStatus status={seq.status} />
       </div>
-
-      <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
-        <SequenceBuilder
-          key={steps.map((s) => s.id).join(",")}
-          id={seq.id}
-          status={seq.status}
-          initial={{
-            name: seq.name,
-            destinationUrl: seq.destinationUrl ?? "",
-            emailSenderId: seq.emailSenderId,
-            steps: steps.map((s) => ({ id: s.id, day: s.day, channel: s.channel as "sms", mode: s.mode as "auto", subject: s.subject, body: s.body }))
-          }}
-          senders={senders.map((s) => ({ id: s.id, label: `${s.name} <${s.email}>` }))}
-          templates={templates}
-        />
-
-        <div className="space-y-4">
-          <Card className="space-y-3 p-4">
-            <h2 className="text-sm font-medium">Leads in this sequence</h2>
-            <div className="grid grid-cols-4 gap-1 text-center text-[11px] text-muted">
-              {(["active", "waiting", "replied", "done"] as const).map((k) => (
-                <div key={k} className="rounded-lg bg-ink-alt py-1.5">
-                  <div className={cn("text-base font-semibold", counts[k] ? STATE[k][1] : "text-muted-2")}>{nf.format(counts[k] ?? 0)}</div>
-                  {k === "done" ? "finished" : k === "active" ? "running" : k}
-                </div>
-              ))}
-            </div>
-            {waiting > 0 && (
-              <div className="flex items-center justify-between gap-2 rounded-xl bg-warning/10 px-3 py-2 text-xs text-warning">
-                <span>{waiting} added by AI, waiting for your OK.</span>
-                <ApproveWaiting sequenceId={seq.id} n={waiting} />
-              </div>
+      <div className="flex gap-1 border-b border-line">
+        {(
+          [
+            ["steps", "Steps"],
+            ["plan", "Plan (lead × day)"]
+          ] as const
+        ).map(([k, label]) => (
+          <Link
+            key={k}
+            href={`/sequences/${seq.id}?tab=${k}`}
+            className={cn(
+              "-mb-px border-b-2 px-3 py-2 text-sm",
+              tab === k ? "border-accent font-medium text-fg" : "border-transparent text-muted hover:text-fg"
             )}
-            <div className="space-y-1.5">
-              <div className="text-xs text-muted">Add a saved list</div>
-              <EnrollList sequenceId={seq.id} lists={lists} />
-              <p className="text-[11px] text-muted-2">
-                Or on <Link href="/leads" className="underline">Leads</Link>, select leads → Sequence. Won, lost and skipped leads are never added.
-              </p>
-            </div>
-            {seq.status !== "active" && <p className="rounded-lg bg-ink-alt px-3 py-2 text-xs text-muted">Nothing is sent until you turn the sequence on.</p>}
-          </Card>
-
-          <Card className="divide-y divide-line">
-            {enrolled.length === 0 && <p className="p-4 text-sm text-muted-2">No one yet.</p>}
-            {enrolled.map(({ e, name }) => {
-              const step = steps[e.currentStep];
-              const [label, tone] = STATE[e.state] ?? [e.state, "text-muted"];
-              return (
-                <div key={e.id} className="flex items-start gap-2 px-4 py-2.5 text-sm">
-                  <div className="min-w-0 flex-1">
-                    <Link href={`/leads/${e.leadId}`} className="block truncate font-medium hover:text-accent-soft">
-                      {name ?? `Lead #${e.leadId}`}
-                    </Link>
-                    <div className="text-[11px] text-muted-2">
-                      <span className={tone}>{label}</span>
-                      {e.state === "active" && step && (
-                        <>
-                          {" "}
-                          · next: step {e.currentStep + 1} {CHANNEL_LABEL[step.channel]}
-                          {e.nextDueAt && e.nextDueAt > new Date() ? ` on ${e.nextDueAt.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : " now"}
-                        </>
-                      )}
-                      {e.state !== "active" && e.endedAt && ` · ${timeAgo(e.endedAt)}`}
-                      {e.note && ` · ${e.note}`}
-                    </div>
-                  </div>
-                  {(e.state === "active" || e.state === "waiting") && <StopButton sequenceId={seq.id} enrollmentId={e.id} />}
-                </div>
-              );
-            })}
-          </Card>
-        </div>
+          >
+            {label}
+          </Link>
+        ))}
       </div>
+
+      {plan ? (
+        <PlanGrid
+          sequenceId={seq.id}
+          status={seq.status}
+          steps={plan.steps.map((s) => ({ id: s.id, day: s.day, sendTime: s.sendTime, channel: s.channel, mode: s.mode }))}
+          rows={plan.rows}
+        />
+      ) : (
+        <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
+          <SequenceBuilder
+            key={steps.map((s) => s.id).join(",")}
+            id={seq.id}
+            status={seq.status}
+            initial={{
+              name: seq.name,
+              destinationUrl: seq.destinationUrl ?? "",
+              emailSenderId: seq.emailSenderId,
+              startDate: seq.startDate,
+              steps: steps.map((s) => ({
+                id: s.id,
+                day: s.day,
+                sendTime: s.sendTime,
+                channel: s.channel as "sms",
+                mode: s.mode as "auto",
+                subject: s.subject,
+                body: s.body
+              }))
+            }}
+            senders={senders.map((s) => ({ id: s.id, label: `${s.name} <${s.email}>` }))}
+            templates={templates}
+          />
+
+          <div className="space-y-4">
+            <Card className="space-y-3 p-4">
+              <h2 className="text-sm font-medium">Leads in this sequence</h2>
+              <div className="grid grid-cols-4 gap-1 text-center text-[11px] text-muted">
+                {(["active", "waiting", "replied", "done"] as const).map((k) => (
+                  <div key={k} className="rounded-lg bg-ink-alt py-1.5">
+                    <div className={cn("text-base font-semibold", counts[k] ? STATE[k][1] : "text-muted-2")}>{nf.format(counts[k] ?? 0)}</div>
+                    {k === "done" ? "finished" : k === "active" ? "running" : k}
+                  </div>
+                ))}
+              </div>
+              {waiting > 0 && (
+                <div className="flex items-center justify-between gap-2 rounded-xl bg-warning/10 px-3 py-2 text-xs text-warning">
+                  <span>{waiting} added by AI, waiting for your OK.</span>
+                  <ApproveWaiting sequenceId={seq.id} n={waiting} />
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <div className="text-xs text-muted">Add a saved list</div>
+                <EnrollList sequenceId={seq.id} lists={lists} />
+                <p className="text-[11px] text-muted-2">
+                  Or on{" "}
+                  <Link href="/leads" className="underline">
+                    Leads
+                  </Link>
+                  , select leads → Sequence. Won, lost and skipped leads are never added.
+                </p>
+              </div>
+              {seq.status !== "active" && <p className="rounded-lg bg-ink-alt px-3 py-2 text-xs text-muted">Nothing is sent until you turn the sequence on.</p>}
+            </Card>
+
+            <Card className="divide-y divide-line">
+              {enrolled.length === 0 && <p className="p-4 text-sm text-muted-2">No one yet.</p>}
+              {enrolled.map(({ e, name }) => {
+                const step = steps[e.currentStep];
+                const [label, tone] = STATE[e.state] ?? [e.state, "text-muted"];
+                return (
+                  <div key={e.id} className="flex items-start gap-2 px-4 py-2.5 text-sm">
+                    <div className="min-w-0 flex-1">
+                      <Link href={`/leads/${e.leadId}`} className="block truncate font-medium hover:text-accent-soft">
+                        {name ?? `Lead #${e.leadId}`}
+                      </Link>
+                      <div className="text-[11px] text-muted-2">
+                        <span className={tone}>{label}</span>
+                        {e.state === "active" && step && (
+                          <>
+                            {" "}
+                            · next: step {e.currentStep + 1} {CHANNEL_LABEL[step.channel]}
+                            {e.nextDueAt && e.nextDueAt > new Date()
+                              ? ` on ${e.nextDueAt.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`
+                              : " now"}
+                          </>
+                        )}
+                        {e.state !== "active" && e.endedAt && ` · ${timeAgo(e.endedAt)}`}
+                        {e.note && ` · ${e.note}`}
+                      </div>
+                    </div>
+                    {(e.state === "active" || e.state === "waiting") && <StopButton sequenceId={seq.id} enrollmentId={e.id} />}
+                  </div>
+                );
+              })}
+            </Card>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

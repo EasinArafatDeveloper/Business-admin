@@ -49,6 +49,7 @@ export async function skipTask(id: number) {
   const t = await openTask(id, user.workspaceId);
   if (!t) return { error: "This task is already done" };
   await db.update(T).set({ state: "skipped", doneAt: new Date(), doneBy: user.id }).where(eq(T.id, t.id));
+  await db.update(schema.planMessages).set({ status: "skipped", updatedAt: new Date() }).where(eq(schema.planMessages.taskId, t.id));
   if (t.recipientId)
     await db
       .update(R)

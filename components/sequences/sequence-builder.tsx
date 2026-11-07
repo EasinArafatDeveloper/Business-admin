@@ -35,6 +35,7 @@ export function SequenceBuilder({
   const [name, setName] = useState(initial.name);
   const [url, setUrl] = useState(initial.destinationUrl);
   const [senderId, setSenderId] = useState<number | null>(initial.emailSenderId);
+  const [startDate, setStartDate] = useState(initial.startDate ?? "");
   const [steps, setSteps] = useState<Step[]>(initial.steps.map((s, i) => ({ ...s, key: `s${s.id ?? i}` })));
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -54,7 +55,8 @@ export function SequenceBuilder({
     name,
     destinationUrl: url,
     emailSenderId: senderId,
-    steps: steps.map((s) => ({ id: s.id, day: s.day, channel: s.channel, mode: s.mode, subject: s.subject, body: s.body }))
+    startDate: startDate || null,
+    steps: steps.map((s) => ({ id: s.id, day: s.day, sendTime: s.sendTime || null, channel: s.channel, mode: s.mode, subject: s.subject, body: s.body }))
   });
 
   const save = () =>
@@ -84,7 +86,7 @@ export function SequenceBuilder({
 
   return (
     <div className="space-y-4">
-      <Card className="grid gap-3 p-5 md:grid-cols-3">
+      <Card className="grid gap-3 p-5 md:grid-cols-2 2xl:grid-cols-4">
         <label className="block">
           <Label>Name</Label>
           <input
@@ -105,6 +107,18 @@ export function SequenceBuilder({
               setDirty(true);
             }}
             placeholder="https://scaleupweb.xyz/free-audit"
+            className={inputClass}
+          />
+        </label>
+        <label className="block">
+          <Label hint="empty = the day each lead is added">Day 1 is</Label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => {
+              setStartDate(e.target.value);
+              setDirty(true);
+            }}
             className={inputClass}
           />
         </label>
@@ -145,6 +159,15 @@ export function SequenceBuilder({
                     value={s.day}
                     onChange={(e) => update(s.key, { day: Math.max(1, Math.min(90, Number(e.target.value) || 1)) })}
                     className="h-8 w-16 rounded-lg border border-line-strong bg-ink-alt px-2 text-sm outline-none focus:border-accent"
+                  />
+                </label>
+                <label className="flex items-center gap-1.5 text-sm" title="Dhaka time. Empty = any time that day (automatic messages wait for 9am)">
+                  at
+                  <input
+                    type="time"
+                    value={s.sendTime ?? ""}
+                    onChange={(e) => update(s.key, { sendTime: e.target.value || null })}
+                    className="h-8 rounded-lg border border-line-strong bg-ink-alt px-2 text-sm outline-none focus:border-accent"
                   />
                 </label>
                 <div className="flex rounded-lg border border-line-strong p-0.5">

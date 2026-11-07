@@ -16,6 +16,16 @@ async function endEnrollments(where: ReturnType<typeof and>, state: "replied" | 
     .returning({ id: E.id, leadId: E.leadId, sequenceId: E.sequenceId });
   for (const e of ended) {
     await db
+      .update(schema.planMessages)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.planMessages.sequenceId, e.sequenceId),
+          eq(schema.planMessages.leadId, e.leadId),
+          inArray(schema.planMessages.status, ["draft", "approved", "queued", "task"])
+        )
+      );
+    await db
       .update(T)
       .set({ state: "cancelled" })
       .where(and(eq(T.enrollmentId, e.id), eq(T.state, "open")));

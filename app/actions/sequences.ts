@@ -7,7 +7,7 @@ import { z } from "zod";
 import { db, schema } from "@/db";
 import { requireAction } from "@/lib/auth";
 import { safeUrl } from "@/lib/tracking";
-import { STEP_CHANNELS, approveWaiting, enrollLeads } from "@/lib/sequences";
+import { STEP_CHANNELS, approveWaiting, enrollLeads, refreshSchedule } from "@/lib/sequences";
 import { stopEnrollments } from "@/lib/sequence-stop";
 
 const S = schema.sequences;
@@ -47,6 +47,11 @@ export async function createSequence(formData: FormData) {
 const stepSchema = z.object({
   id: z.number().int().optional(),
   day: z.number().int().min(1).max(90),
+  sendTime: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Time must look like 10:00")
+    .nullable()
+    .optional(),
   channel: z.enum(STEP_CHANNELS),
   mode: z.enum(["auto", "manual"]),
   subject: z.string().max(200).optional().nullable(),
@@ -56,6 +61,11 @@ const saveSchema = z.object({
   name: z.string().trim().min(2, "Name the sequence").max(120),
   destinationUrl: z.string().trim().max(500),
   emailSenderId: z.number().int().nullable(),
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
   steps: z.array(stepSchema).min(1, "Add at least one step").max(15)
 });
 export type SequenceInput = z.infer<typeof saveSchema>;
@@ -70,7 +80,7 @@ export async function saveSequence(id: number, input: SequenceInput): Promise<{ 
   const d = p.data;
   const url = d.destinationUrl ? safeUrl(d.destinationUrl) : null;
   if (d.destinationUrl && !url) return { error: "The link must be a full address starting with https://" };
-  const steps = [...d.steps].sort((a, b) => a.day - b.day);
+  const steps = [...d.steps].sort((a, b) => a.day - b.day || (a.sendTime ?? "").localeCompare(b.sendTime ?? ""));
   for (const [i, s] of steps.entries()) {
     if (s.channel !== "call" && !s.body.trim()) return { error: `Step ${i + 1}: write the message` };
     if (s.channel === "email" && !s.subject?.trim()) return { error: `Step ${i + 1}: add an email subject` };
@@ -87,7 +97,7 @@ export async function saveSequence(id: number, input: SequenceInput): Promise<{ 
 
   await db
     .update(S)
-    .set({ name: d.name, destinationUrl: url, emailSenderId: d.emailSenderId, updatedAt: new Date() })
+    .set({ name: d.name, destinationUrl: url, emailSenderId: d.emailSenderId, startDate: d.startDate || null, updatedAt: new Date() })
     .where(eq(S.id, id));
   const existing = await db.select().from(ST).where(eq(ST.sequenceId, id));
   const keep = new Set(steps.map((s) => s.id).filter(Boolean));
@@ -95,7 +105,7 @@ export async function saveSequence(id: number, input: SequenceInput): Promise<{ 
   if (gone.length) await db.delete(ST).where(inArray(ST.id, gone));
   for (const [position, s] of steps.entries()) {
     const old = existing.find((e) => e.id === s.id);
-    const values = { position, day: s.day, channel: s.channel, mode: s.channel === "call" ? "manual" : s.mode, subject: s.channel === "email" ? (s.subject ?? null) : null, body: s.body };
+    const values = { position, day: s.day, sendTime: s.sendTime || null, channel: s.channel, mode: s.channel === "call" ? "manual" : s.mode, subject: s.channel === "email" ? (s.subject ?? null) : null, body: s.body };
     if (old) {
       // A new channel needs a new campaign; same channel just gets the new text.
       const campaignId = old.channel === s.channel ? old.campaignId : null;
@@ -108,6 +118,7 @@ export async function saveSequence(id: number, input: SequenceInput): Promise<{ 
       await db.insert(ST).values({ ...values, sequenceId: id });
     }
   }
+  await refreshSchedule(id);
   revalidatePath(`/sequences/${id}`);
   revalidatePath("/sequences");
   return { ok: true };

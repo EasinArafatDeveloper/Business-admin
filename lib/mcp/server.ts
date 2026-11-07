@@ -7,11 +7,14 @@ import { LEAD_STATUSES } from "@/lib/constants";
 import { parseFilters, whereFor } from "@/lib/leads-query";
 import { addLeads } from "@/lib/lists";
 import { bulkUpdateLeads } from "@/lib/lead-bulk";
-import { enrollLeads, enrollmentCounts } from "@/lib/sequences";
-import { endOfToday } from "@/lib/today";
+import { dhakaDate, enrollLeads, enrollmentCounts } from "@/lib/sequences";
+import { getPlan, planOutreach, planReport, plannedBetween, updatePlanMessage } from "@/lib/plans";
+import { stopSequencesForLead } from "@/lib/sequence-stop";
+import { normalizeBdMobile } from "@/lib/sms-text";
+import { normalizeEmail } from "@/lib/email";
 import { ACTIVITY_KINDS, type ActivityType, MANUAL_TYPES, logActivity } from "@/lib/activity";
 import { offerGroup } from "@/lib/offer";
-import { createCampaignWithRecipients, dhakaNow } from "@/lib/campaigns";
+import { createCampaignWithRecipients, dhakaNow, findLeadsByContacts } from "@/lib/campaigns";
 import { getBilling, invoicePrefix, invoiceUrl, nextInvoiceNumber, publicToken } from "@/lib/billing";
 import { fmtDate, invoiceState, parseTaka, taka, totals } from "@/lib/money";
 import { safeUrl } from "@/lib/tracking";
@@ -729,26 +732,38 @@ export function buildServer(ctx: McpContext) {
   tool(
     "get_today_tasks",
     {
-      title: "Today's tasks",
+      title: "Tasks for a day",
       description:
-        "What the user has to do by hand today (WhatsApp/SMS/email to send, calls), overdue first, plus unread replies. Tasks are completed by the user in the admin.",
+        "What the user has to do by hand on a day (default today, Dhaka): WhatsApp/SMS/email to send and calls, overdue first, with the message. For a future date it also lists the plan messages scheduled that day. Plus unread replies. Tasks are completed by the user in the admin.",
       section: "campaigns",
-      input: { includeLater: z.boolean().optional().describe("Also list tasks due on later days") }
+      input: {
+        date: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional()
+          .describe("YYYY-MM-DD, Dhaka. Default today")
+      }
     },
     async (a) => {
       const T = schema.tasks;
+      const today = dhakaDate(new Date());
+      const date = a.date ?? today;
+      const dayStart = new Date(`${date}T00:00:00+06:00`);
+      const dayEnd = new Date(dayStart.getTime() + 86_400_000);
       const rows = await db
         .select({ t: T, name: L.pageName, status: L.status })
         .from(T)
         .innerJoin(L, eq(L.id, T.leadId))
-        .where(and(eq(T.workspaceId, ws), eq(T.state, "open"), a.includeLater ? undefined : lte(T.dueAt, endOfToday())))
+        .where(and(eq(T.workspaceId, ws), eq(T.state, "open"), lte(T.dueAt, dayEnd), date === today ? undefined : gte(T.dueAt, dayStart)))
         .orderBy(asc(T.dueAt))
         .limit(200);
+      const planned = await plannedBetween(ws, dayStart, dayEnd);
       const [unread] = await db
         .select({ n: sql<number>`count(distinct ${M.sender})::int` })
         .from(M)
         .where(and(eq(M.workspaceId, ws), eq(M.direction, "in"), isNull(M.readAt)));
       return ok({
+        date,
         unreadReplies: unread?.n ?? 0,
         tasks: rows.map(({ t, name, status }) => ({
           id: t.id,
@@ -760,8 +775,251 @@ export function buildServer(ctx: McpContext) {
           message: t.body,
           due: t.dueAt
         })),
+        plannedThatDay: planned,
         url: adminUrl("/today")
       });
+    }
+  );
+
+  tool(
+    "find_leads_by_contact",
+    {
+      title: "Find leads by phone, email or Facebook page",
+      description:
+        "Match pasted phone numbers (any BD format), emails and Facebook page links to existing leads. Returns matched lead ids and what was not found. Use before plan_outreach.",
+      section: "leads",
+      input: {
+        phones: z.array(z.string().max(40)).max(500).optional(),
+        emails: z.array(z.string().max(200)).max(500).optional(),
+        fb_urls: z.array(z.string().max(500)).max(500).optional()
+      }
+    },
+    async (a) => {
+      const matched: { input: string; leadId: number; name: string | null; status: string; by: string }[] = [];
+      const notFound: string[] = [];
+      const phones = (a.phones ?? []).map((p) => ({ input: p, n: normalizeBdMobile(p) }));
+      for (const p of phones.filter((x) => !x.n)) notFound.push(`${p.input} (not a BD mobile)`);
+      if (phones.some((p) => p.n)) {
+        const { byKey, keyOf } = await findLeadsByContacts(
+          ws,
+          phones.filter((p) => p.n).map((p) => p.n!),
+          "sms"
+        );
+        for (const p of phones.filter((x) => x.n)) {
+          const l = byKey.get(keyOf(p.n!));
+          if (l) matched.push({ input: p.input, leadId: l.id, name: l.name, status: l.status, by: "phone" });
+          else notFound.push(p.input);
+        }
+      }
+      const emails = (a.emails ?? []).map((e) => ({ input: e, n: normalizeEmail(e) }));
+      for (const e of emails.filter((x) => !x.n)) notFound.push(`${e.input} (not an email)`);
+      if (emails.some((e) => e.n)) {
+        const { byKey, keyOf } = await findLeadsByContacts(
+          ws,
+          emails.filter((e) => e.n).map((e) => e.n!),
+          "email"
+        );
+        for (const e of emails.filter((x) => x.n)) {
+          const l = byKey.get(keyOf(e.n!));
+          if (l) matched.push({ input: e.input, leadId: l.id, name: l.name, status: l.status, by: "email" });
+          else notFound.push(e.input);
+        }
+      }
+      for (const u of a.fb_urls ?? []) {
+        const key = u
+          .trim()
+          .toLowerCase()
+          .replace(/^https?:\/\//, "")
+          .replace(/^(www|m|web|mbasic)\./, "")
+          .replace(/[?#].*$/, "")
+          .replace(/\/+$/, "");
+        if (key.length < 6) {
+          notFound.push(`${u} (not a page link)`);
+          continue;
+        }
+        const like = `%${key.replace(/[%_]/g, "\\$&")}%`;
+        const [l] = await db
+          .select({ id: L.id, name: L.pageName, status: L.status })
+          .from(L)
+          .where(and(eq(L.workspaceId, ws), or(ilike(L.pageLink, like), ilike(L.externalKey, like))))
+          .limit(1);
+        if (l) matched.push({ input: u, leadId: l.id, name: l.name, status: l.status, by: "facebook page" });
+        else notFound.push(u);
+      }
+      return ok({ matched, leadIds: [...new Set(matched.map((m) => m.leadId))], notFound });
+    }
+  );
+
+  tool(
+    "plan_outreach",
+    {
+      title: "Plan day-by-day outreach for some leads",
+      description:
+        "The main tool for 'set up a day-by-day follow-up for these leads'. In one call it builds a saved list, a sequence (steps by day/time/channel/mode), adds the leads, and stores each person's own message per step. dry_run defaults to TRUE: you get a day-by-day preview (who gets what, problems like missing numbers) and nothing is saved. Call again with dry_run=false to save. Calling again with the same name updates that plan instead of making a duplicate. Max 200 leads. NOTHING is sent: the leads wait until the user clicks 'Approve & start' in the admin. mode 'manual' = user sends from their phone via Today (use for cold WhatsApp); 'auto' = app sends 9am–9pm. Messages can use {name} {link} {ads} {days} {followers} etc; a step's body is used for leads without their own message.",
+      section: "campaigns",
+      write: true,
+      input: {
+        name: z.string().min(2).max(120).describe("e.g. Batch 1 – Clinic"),
+        lead_ids: z.array(z.number().int()).min(1).max(200),
+        steps: z
+          .array(
+            z.object({
+              day: z.number().int().min(1).max(90).describe("1 = start day"),
+              time: z.string().optional().describe("Dhaka time, e.g. 10:00"),
+              channel: z.enum(["email", "sms", "whatsapp", "call"]),
+              mode: z.enum(["auto", "manual"]).optional().describe("default manual"),
+              subject: z.string().max(200).optional().describe("Default email subject"),
+              body: z.string().max(10000).optional().describe("Default message for leads without their own")
+            })
+          )
+          .min(1)
+          .max(15),
+        messages: z
+          .array(
+            z.object({
+              lead_id: z.number().int(),
+              day: z.number().int(),
+              channel: z.enum(["email", "sms", "whatsapp", "call"]),
+              subject: z.string().max(200).optional(),
+              body: z.string().min(1).max(10000)
+            })
+          )
+          .max(3000)
+          .default([]),
+        start_date: z
+          .string()
+          .regex(/^\d{4}-\d{2}-\d{2}$/)
+          .optional()
+          .describe("Day 1 date (YYYY-MM-DD). Default: the day the user approves"),
+        timezone: z.string().optional().describe("Only Asia/Dhaka is supported"),
+        link: z.string().max(500).optional().describe("Where {link} goes, e.g. https://scaleupweb.xyz/free-audit"),
+        dry_run: z.boolean().default(true)
+      }
+    },
+    async (a) => {
+      const r = await planOutreach(ws, user.id, {
+        name: a.name,
+        leadIds: a.lead_ids,
+        steps: a.steps,
+        messages: a.messages.map((m) => ({ leadId: m.lead_id, day: m.day, channel: m.channel, subject: m.subject, body: m.body })),
+        startDate: a.start_date,
+        link: a.link,
+        dryRun: a.dry_run
+      });
+      if ("error" in r) return fail(r.error ?? "Could not plan");
+      const tzNote = a.timezone && a.timezone !== "Asia/Dhaka" ? "Times are Dhaka time (Asia/Dhaka); other time zones are not supported yet." : undefined;
+      if (r.dryRun)
+        return ok({
+          ...r,
+          ...(tzNote ? { note: tzNote } : {}),
+          next: a.dry_run ? "Preview only — nothing saved. Fix any problems, then call again with dry_run=false." : "Not saved because of the problems listed."
+        });
+      return ok({
+        ...r,
+        preview: undefined,
+        note: `Saved. ${r.newlyAdded} leads are waiting: ask the user to open the plan, check the messages and click 'Approve & start'.${tzNote ? " " + tzNote : ""}`,
+        url: adminUrl(`/sequences/${r.planId}?tab=plan`)
+      });
+    }
+  );
+
+  tool(
+    "get_plan",
+    {
+      title: "A plan, lead × day",
+      description: "Every lead and step of a plan (sequence) with the message and status: draft / approved / planned / queued / task (on Today) / sent / skipped / cancelled / failed.",
+      section: "campaigns",
+      input: { plan_id: z.number().int() }
+    },
+    async (a) => {
+      const p = await getPlan(ws, a.plan_id);
+      if (!p) return fail("No plan with that id");
+      return ok({
+        id: p.seq.id,
+        name: p.seq.name,
+        status: p.seq.status,
+        startDate: p.seq.startDate,
+        steps: p.steps.map((s) => ({ stepId: s.id, day: s.day, time: s.sendTime, channel: s.channel, mode: s.mode })),
+        leads: p.rows.map((r) => ({
+          leadId: r.lead.id,
+          name: r.lead.name,
+          state: r.enrollment.state,
+          cells: r.cells.map((c, i) => ({ day: p.steps[i].day, channel: p.steps[i].channel, status: c.status, at: c.at, own: c.personal, subject: c.subject, message: c.body }))
+        })),
+        url: adminUrl(`/sequences/${p.seq.id}?tab=plan`)
+      });
+    }
+  );
+
+  tool(
+    "update_plan_message",
+    {
+      title: "Change one message in a plan",
+      description:
+        "Rewrite one lead's message for one day of a plan (e.g. 'make Taqwa's Day 4 message shorter'), or skip it. Only works before the message is prepared for sending.",
+      section: "campaigns",
+      write: true,
+      input: {
+        plan_id: z.number().int(),
+        lead_id: z.number().int(),
+        day: z.number().int(),
+        channel: z.enum(["email", "sms", "whatsapp", "call"]).optional().describe("Needed when that day has more than one step"),
+        body: z.string().max(10000).optional(),
+        subject: z.string().max(200).optional(),
+        skip: z.boolean().optional().describe("true = don't send this one; false = put it back")
+      }
+    },
+    async (a) => {
+      const steps = await db
+        .select({ id: SS.id, channel: SS.channel })
+        .from(SS)
+        .innerJoin(SQ, eq(SQ.id, SS.sequenceId))
+        .where(and(eq(SS.sequenceId, a.plan_id), eq(SQ.workspaceId, ws), eq(SS.day, a.day)));
+      const step = a.channel ? steps.find((s) => s.channel === a.channel) : steps.length === 1 ? steps[0] : undefined;
+      if (!step) return fail(steps.length > 1 ? `Day ${a.day} has ${steps.map((s) => s.channel).join(" and ")}: say which channel` : `No step on day ${a.day}`);
+      if (a.body === undefined && a.subject === undefined && a.skip === undefined) return fail("Give body, subject or skip");
+      const r = await updatePlanMessage(ws, a.plan_id, a.lead_id, step.id, { body: a.body, subject: a.subject, skip: a.skip });
+      if ("error" in r) return fail(r.error ?? "Could not update");
+      return ok({ updated: true, status: r.status, url: adminUrl(`/sequences/${a.plan_id}?tab=plan`) });
+    }
+  );
+
+  tool(
+    "mark_replied",
+    {
+      title: "Record that a lead replied",
+      description:
+        "The lead replied (on WhatsApp, SMS, email or a call). Logs it on their timeline, moves new/contacted to interested, and stops all their sequences so no more follow-ups go out. Sends nothing.",
+      section: "leads",
+      write: true,
+      input: {
+        lead_id: z.number().int(),
+        channel: z.enum(["whatsapp", "sms", "email", "phone"]),
+        note: z.string().max(4000).optional().describe("What they said")
+      }
+    },
+    async (a) => {
+      const type = a.channel === "whatsapp" ? "wa_reply" : a.channel === "email" ? "email_reply" : a.channel === "sms" ? "sms_reply" : "call";
+      const id = await logActivity({ workspaceId: ws, leadId: a.lead_id, userId: user.id, type, body: a.note ?? "Replied", meta: { via: "ai" } });
+      if (!id) return fail("No lead with that id");
+      // A phone reply is logged as a call; stop their sequences too.
+      if (type === "call") await stopSequencesForLead(a.lead_id, "replied", "Replied on a call");
+      return ok({ logged: true, sequencesStopped: true, url: adminUrl(`/leads/${a.lead_id}`) });
+    }
+  );
+
+  tool(
+    "get_plan_report",
+    {
+      title: "How a plan is doing",
+      description: "Sent, replied, demo and won for a plan — per lead and per channel.",
+      section: "campaigns",
+      input: { plan_id: z.number().int() }
+    },
+    async (a) => {
+      const r = await planReport(ws, a.plan_id);
+      if (!r) return fail("No plan with that id");
+      return ok({ ...r, url: adminUrl(`/sequences/${a.plan_id}?tab=plan`) });
     }
   );
 

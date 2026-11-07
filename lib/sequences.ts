@@ -14,7 +14,6 @@ const C = schema.campaigns;
 export const STEP_CHANNELS = ["email", "sms", "whatsapp", "call"] as const;
 export type StepChannel = (typeof STEP_CHANNELS)[number];
 export const CHANNEL_LABEL: Record<string, string> = { email: "Email", sms: "SMS", whatsapp: "WhatsApp", call: "Call" };
-const DAY = 86_400_000;
 /** Leads in these statuses never get sequence messages. */
 const CLOSED = ["won", "lost", "skip"] as const;
 
@@ -40,7 +39,34 @@ const LEAD_COLS = {
   address: L.address
 };
 
-const dueFor = (enrolledAt: Date, day: number) => new Date(Math.max(Date.now(), enrolledAt.getTime() + (Math.max(1, day) - 1) * DAY));
+const PM = schema.planMessages;
+const TZ = 6 * 3600_000; // Dhaka is UTC+6, no daylight saving
+
+/** "2026-11-08" for a moment, in Dhaka. */
+export const dhakaDate = (d: Date) => new Date(d.getTime() + TZ).toISOString().slice(0, 10);
+
+/**
+ * When a step is due for someone: day 1 is the later of the day they were added and the sequence's start date,
+ * at the step's time (Dhaka). Never in the past unless clampToNow is false.
+ */
+export function stepDue(enrolledAt: Date, startDate: string | null, day: number, sendTime: string | null, clampToNow = true) {
+  const base = [dhakaDate(enrolledAt), startDate ?? ""].sort().at(-1)!;
+  const [y, m, d] = base.split("-").map(Number);
+  const [hh, mm] = (sendTime || "00:00").split(":").map(Number);
+  const at = Date.UTC(y, m - 1, d + Math.max(1, day) - 1, hh || 0, mm || 0) - TZ;
+  return new Date(clampToNow ? Math.max(Date.now(), at) : at);
+}
+
+/** Recomputes when each planned message goes out (after adding people, approving, or changing days/times). */
+export async function refreshSchedule(sequenceId: number) {
+  await db.execute(sql`
+    update plan_messages pm
+    set scheduled_at = ((greatest((e.enrolled_at at time zone 'Asia/Dhaka')::date, coalesce(s.start_date::date, '1900-01-01'::date)) + (st.day - 1))
+      + coalesce(nullif(st.send_time, ''), '00:00')::time) at time zone 'Asia/Dhaka'
+    from enrollments e, sequence_steps st, sequences s
+    where pm.sequence_id = ${sequenceId} and e.sequence_id = pm.sequence_id and e.lead_id = pm.lead_id
+      and st.id = pm.step_id and s.id = pm.sequence_id and pm.status in ('draft', 'approved')`);
+}
 
 async function log(workspaceId: number, leadId: number, body: string, userId?: number | null) {
   await db.insert(schema.leadActivities).values({ workspaceId, leadId, userId: userId ?? null, type: "sequence", body });
@@ -77,7 +103,7 @@ export async function enrollLeads(workspaceId: number, sequenceId: number, leadI
             state,
             enrolledBy: userId,
             enrolledAt: now,
-            nextDueAt: state === "active" ? dueFor(now, first.day) : null
+            nextDueAt: state === "active" ? stepDue(now, seq.startDate, first.day, first.sendTime) : null
           }))
         )
         .onConflictDoNothing()
@@ -93,19 +119,42 @@ export async function enrollLeads(workspaceId: number, sequenceId: number, leadI
         body: state === "waiting" ? `Added to sequence “${seq.name}” (waiting for your OK)` : `Started sequence “${seq.name}”`
       }))
     );
+  if (rows.length) await refreshSchedule(seq.id);
   return { enrolled: rows.length, skipped: ids.length - rows.length };
 }
 
 /** Starts the leads the AI added (state "waiting"). Their day 1 is today. */
 export async function approveWaiting(workspaceId: number, sequenceId: number) {
+  const [seq] = await db
+    .select()
+    .from(S)
+    .where(and(eq(S.id, sequenceId), eq(S.workspaceId, workspaceId)))
+    .limit(1);
   const [first] = await db.select().from(ST).where(eq(ST.sequenceId, sequenceId)).orderBy(asc(ST.position)).limit(1);
-  if (!first) return 0;
+  if (!seq || !first) return 0;
   const now = new Date();
   const rows = await db
     .update(E)
-    .set({ state: "active", enrolledAt: now, nextDueAt: dueFor(now, first.day) })
+    .set({ state: "active", enrolledAt: now, nextDueAt: stepDue(now, seq.startDate, first.day, first.sendTime) })
     .where(and(eq(E.workspaceId, workspaceId), eq(E.sequenceId, sequenceId), eq(E.state, "waiting")))
-    .returning({ id: E.id });
+    .returning({ leadId: E.leadId });
+  if (rows.length) {
+    // Their planned messages are approved with them.
+    await db
+      .update(PM)
+      .set({ status: "approved", updatedAt: now })
+      .where(
+        and(
+          eq(PM.sequenceId, sequenceId),
+          eq(PM.status, "draft"),
+          inArray(
+            PM.leadId,
+            rows.map((r) => r.leadId)
+          )
+        )
+      );
+    await refreshSchedule(sequenceId);
+  }
   return rows.length;
 }
 
@@ -141,44 +190,79 @@ async function stepCampaign(seq: typeof S.$inferSelect, step: typeof ST.$inferSe
 async function runStep(seq: typeof S.$inferSelect, step: typeof ST.$inferSelect, enrollment: typeof E.$inferSelect, lead: SequenceLead & { status: string }) {
   const label = `${seq.name} · step ${step.position + 1}`;
   const dueAt = new Date();
+  // This person's own message for the step (from a plan), if there is one.
+  const [pm] = await db
+    .select()
+    .from(PM)
+    .where(and(eq(PM.stepId, step.id), eq(PM.leadId, lead.id)))
+    .limit(1);
+  if (pm && (pm.status === "skipped" || pm.status === "cancelled"))
+    return log(
+      seq.workspaceId,
+      lead.id,
+      `Sequence “${seq.name}”: step ${step.position + 1} (${CHANNEL_LABEL[step.channel]}) skipped — you skipped it in the plan`
+    );
+  const body = pm?.body ?? step.body;
+  const subject = pm?.subject ?? step.subject;
+  const done = async (patch: Partial<typeof PM.$inferInsert>) => {
+    if (pm)
+      await db
+        .update(PM)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(PM.id, pm.id));
+  };
+  if (step.channel !== "call" && !body.trim())
+    return log(seq.workspaceId, lead.id, `Sequence “${seq.name}”: step ${step.position + 1} skipped — no message written for it`);
   if (step.channel === "call") {
     const c = contactFor(lead, "sms");
     if ("skip" in c) return log(seq.workspaceId, lead.id, `Sequence “${seq.name}”: step ${step.position + 1} (call) skipped — ${c.skip}`);
     const vars = { name: lead.pageName, service: lead.primaryService, link: seq.destinationUrl ?? "", fields: leadFields(lead) };
-    await db.insert(T).values({
-      workspaceId: seq.workspaceId,
-      leadId: lead.id,
-      enrollmentId: enrollment.id,
-      stepId: step.id,
-      channel: "call",
-      title: `Call · ${label}`,
-      body: step.body ? renderTemplate(step.body, vars) : null,
-      contact: c.to,
-      dueAt
-    });
+    const [task] = await db
+      .insert(T)
+      .values({
+        workspaceId: seq.workspaceId,
+        leadId: lead.id,
+        enrollmentId: enrollment.id,
+        stepId: step.id,
+        channel: "call",
+        title: `Call · ${label}`,
+        body: body ? renderTemplate(body, vars) : null,
+        contact: c.to,
+        dueAt
+      })
+      .returning({ id: T.id });
+    await done({ status: "task", taskId: task.id });
     return;
   }
   const manual = step.mode !== "auto";
   if (!manual && step.channel === "email" && !seq.emailSenderId)
     return log(seq.workspaceId, lead.id, `Sequence “${seq.name}”: step ${step.position + 1} skipped — no email sender chosen for the sequence`);
   const campaignId = await stepCampaign(seq, step);
-  const res = await addRecipient(campaignId, lead, { channel: step.channel as Channel, workspaceId: seq.workspaceId, body: step.body, subject: step.subject, manual });
-  if ("skip" in res)
+  const res = await addRecipient(campaignId, lead, { channel: step.channel as Channel, workspaceId: seq.workspaceId, body, subject, manual });
+  if ("skip" in res) {
+    await done({ status: "skipped" });
     return log(seq.workspaceId, lead.id, `Sequence “${seq.name}”: step ${step.position + 1} (${CHANNEL_LABEL[step.channel]}) skipped — ${res.skip}`);
-  if (manual)
-    await db.insert(T).values({
-      workspaceId: seq.workspaceId,
-      leadId: lead.id,
-      enrollmentId: enrollment.id,
-      stepId: step.id,
-      recipientId: res.recipientId,
-      channel: step.channel,
-      title: `${CHANNEL_LABEL[step.channel]} · ${label}`,
-      subject: res.subject,
-      body: res.message,
-      contact: res.to,
-      dueAt
-    });
+  }
+  if (!manual) await done({ status: "queued", recipientId: res.recipientId });
+  if (manual) {
+    const [task] = await db
+      .insert(T)
+      .values({
+        workspaceId: seq.workspaceId,
+        leadId: lead.id,
+        enrollmentId: enrollment.id,
+        stepId: step.id,
+        recipientId: res.recipientId,
+        channel: step.channel,
+        title: `${CHANNEL_LABEL[step.channel]} · ${label}`,
+        subject: res.subject,
+        body: res.message,
+        contact: res.to,
+        dueAt
+      })
+      .returning({ id: T.id });
+    await done({ status: "task", recipientId: res.recipientId, taskId: task.id });
+  }
 }
 
 /** Called every minute: every enrollment whose next step is due gets it, then moves on. */
@@ -221,7 +305,7 @@ export async function runDueSteps() {
       .update(E)
       .set(
         next
-          ? { currentStep: e.currentStep + 1, nextDueAt: dueFor(e.enrolledAt, next.day) }
+          ? { currentStep: e.currentStep + 1, nextDueAt: stepDue(e.enrolledAt, s.startDate, next.day, next.sendTime) }
           : { currentStep: e.currentStep + 1, state: "done", endedAt: new Date(), nextDueAt: null }
       )
       .where(and(eq(E.id, e.id), eq(E.currentStep, e.currentStep), eq(E.state, "active")))
