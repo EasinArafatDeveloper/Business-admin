@@ -9,7 +9,8 @@ import {
   serial,
   text,
   timestamp,
-  uniqueIndex
+  uniqueIndex,
+  type AnyPgColumn
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { LEAD_STATUSES } from "@/lib/constants";
@@ -227,6 +228,8 @@ export const campaigns = pgTable("campaigns", {
   uniqueClickers: integer("unique_clickers").notNull().default(0),
   botClicks: integer("bot_clicks").notNull().default(0),
   lastError: text("last_error"),
+  /** Set when this campaign carries one step of a sequence (its messages are added as leads reach the step). */
+  sequenceId: integer("sequence_id").references((): AnyPgColumn => sequences.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   startedAt: timestamp("started_at", { withTimezone: true }),
   finishedAt: timestamp("finished_at", { withTimezone: true })
@@ -279,7 +282,7 @@ export const campaignRecipients = pgTable(
     /** SMS parts this message costs (see lib/sms-text.ts). */
     parts: integer("parts").notNull().default(1),
     trackingCode: text("tracking_code").notNull().unique(),
-    /** queued | sending | sent | failed */
+    /** queued | sending | sent | failed · sequences also use manual (waiting to be sent by hand), skipped, cancelled */
     status: text("status").notNull().default("queued"),
     providerCode: text("provider_code"),
     error: text("error"),
@@ -672,3 +675,135 @@ export const leadListItems = pgTable(
   ]
 );
 export type LeadList = typeof leadLists.$inferSelect;
+
+/* ---------------------------------------------------------------- templates, sequences, tasks */
+
+/** A reusable message, e.g. "Free audit offer — WhatsApp". Body may use {name} {link} {ads} … */
+export const messageTemplates = pgTable(
+  "message_templates",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** sms | whatsapp | email */
+    channel: text("channel").notNull(),
+    name: text("name").notNull(),
+    subject: text("subject"),
+    body: text("body").notNull(),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("message_templates_ws_idx").on(t.workspaceId, t.channel)]
+);
+
+/** A multi-step outreach plan, e.g. Day 1 email → Day 2 SMS → Day 4 WhatsApp. draft → active ⇄ paused */
+export const sequences = pgTable(
+  "sequences",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    status: text("status").notNull().default("draft"),
+    /** Where {link} goes (tracked per person). */
+    destinationUrl: text("destination_url"),
+    emailSenderId: integer("email_sender_id").references(() => emailSenders.id, { onDelete: "set null" }),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("sequences_ws_idx").on(t.workspaceId, t.status)]
+);
+
+/** One step. `day` counts from the day the lead was enrolled (1 = same day). */
+export const sequenceSteps = pgTable(
+  "sequence_steps",
+  {
+    id: serial("id").primaryKey(),
+    sequenceId: integer("sequence_id")
+      .notNull()
+      .references(() => sequences.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    day: integer("day").notNull().default(1),
+    /** sms | whatsapp | email | call */
+    channel: text("channel").notNull(),
+    /** auto = the app sends it · manual = it becomes a task on the Today screen */
+    mode: text("mode").notNull().default("manual"),
+    subject: text("subject"),
+    body: text("body").notNull().default(""),
+    /** The campaign that carries this step's messages (created on first use). */
+    campaignId: integer("campaign_id").references(() => campaigns.id, { onDelete: "set null" })
+  },
+  (t) => [index("sequence_steps_seq_idx").on(t.sequenceId, t.position)]
+);
+
+/** A lead going through a sequence. waiting (added by AI, needs your OK) → active → replied | stopped | done */
+export const enrollments = pgTable(
+  "enrollments",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    sequenceId: integer("sequence_id")
+      .notNull()
+      .references(() => sequences.id, { onDelete: "cascade" }),
+    leadId: integer("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+    /** Index of the next step to run. */
+    currentStep: integer("current_step").notNull().default(0),
+    nextDueAt: timestamp("next_due_at", { withTimezone: true }),
+    state: text("state").notNull().default("active"),
+    note: text("note"),
+    enrolledBy: integer("enrolled_by").references(() => users.id, { onDelete: "set null" }),
+    enrolledAt: timestamp("enrolled_at", { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true })
+  },
+  (t) => [
+    uniqueIndex("enrollments_unique").on(t.sequenceId, t.leadId),
+    index("enrollments_due_idx").on(t.state, t.nextDueAt),
+    index("enrollments_lead_idx").on(t.leadId)
+  ]
+);
+
+/** Something to do for a lead — mostly manual sequence steps. open → done | skipped | cancelled */
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: serial("id").primaryKey(),
+    workspaceId: integer("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    leadId: integer("lead_id")
+      .notNull()
+      .references(() => leads.id, { onDelete: "cascade" }),
+    enrollmentId: integer("enrollment_id").references(() => enrollments.id, { onDelete: "cascade" }),
+    stepId: integer("step_id").references(() => sequenceSteps.id, { onDelete: "set null" }),
+    /** The tracked message waiting to be sent by hand (status "manual" until you mark it sent). */
+    recipientId: integer("recipient_id").references(() => campaignRecipients.id, { onDelete: "set null" }),
+    /** sms | whatsapp | email | call */
+    channel: text("channel").notNull(),
+    title: text("title").notNull(),
+    subject: text("subject"),
+    body: text("body"),
+    /** Where to send it: the number or email at the time the task was made. */
+    contact: text("contact"),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    state: text("state").notNull().default("open"),
+    assigneeId: integer("assignee_id").references(() => users.id, { onDelete: "set null" }),
+    doneAt: timestamp("done_at", { withTimezone: true }),
+    doneBy: integer("done_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (t) => [index("tasks_due_idx").on(t.workspaceId, t.state, t.dueAt), index("tasks_lead_idx").on(t.leadId)]
+);
+
+export type MessageTemplate = typeof messageTemplates.$inferSelect;
+export type Sequence = typeof sequences.$inferSelect;
+export type SequenceStep = typeof sequenceSteps.$inferSelect;
+export type Enrollment = typeof enrollments.$inferSelect;
+export type Task = typeof tasks.$inferSelect;

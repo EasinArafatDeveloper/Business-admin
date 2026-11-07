@@ -4,6 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bookmark,
+  CalendarCheck,
+  FileType2,
+  Workflow,
   FileSpreadsheet,
   FileText,
   Inbox,
@@ -23,7 +26,12 @@ import { ThemeToggle } from "@/components/theme-toggle";
 type Item = { href: string; label: string; icon: LucideIcon; soon?: boolean };
 
 const GROUPS: { title?: string; items: Item[] }[] = [
-  { items: [{ href: "/", label: "Dashboard", icon: LayoutDashboard }] },
+  {
+    items: [
+      { href: "/", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/today", label: "Today", icon: CalendarCheck }
+    ]
+  },
   {
     title: "Leads",
     items: [
@@ -35,7 +43,9 @@ const GROUPS: { title?: string; items: Item[] }[] = [
   {
     title: "Outreach",
     items: [
+      { href: "/sequences", label: "Sequences", icon: Workflow },
       { href: "/campaigns", label: "Campaigns", icon: Megaphone },
+      { href: "/templates", label: "Templates", icon: FileType2 },
       { href: "/inbox", label: "Inbox", icon: Inbox },
       { href: "/channels", label: "Channels", icon: RadioTower }
     ]

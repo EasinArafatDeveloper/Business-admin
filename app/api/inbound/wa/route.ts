@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { asc, eq, or, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { db, schema } from "@/db";
+import { stopSequencesForLead } from "@/lib/sequence-stop";
 
 /** WhatsApp replies forwarded by the wa service. "STOP" opts the person out of WhatsApp campaigns. */
 const STOP = /^\s*(stop|unsubscribe|remove|bondho|bondo|বন্ধ|বন্ধ করুন|stop koren|stop korun)\s*[.!]*\s*$/i;
@@ -68,6 +69,8 @@ export async function POST(request: Request) {
           : { status: sql`case when ${L.status} in ('new','contacted') then 'interested'::lead_status else ${L.status} end` })
       })
       .where(eq(L.id, lead.id));
+    // Any reply (or STOP) ends their sequences.
+    await stopSequencesForLead(lead.id, optOut ? "stopped" : "replied", optOut ? "Opted out of WhatsApp" : "Replied on WhatsApp");
   }
   return NextResponse.json({ ok: true, matched: matches.length, optOut });
 }

@@ -28,7 +28,15 @@ export type LeadRow = {
   tags: string[];
 };
 
-export function LeadsTable({ rows, lists = [] }: { rows: LeadRow[]; lists?: { id: number; name: string }[] }) {
+export function LeadsTable({
+  rows,
+  lists = [],
+  sequences = []
+}: {
+  rows: LeadRow[];
+  lists?: { id: number; name: string }[];
+  sequences?: { id: number; name: string; status: string }[];
+}) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [pending, startTransition] = useTransition();
@@ -65,7 +73,7 @@ export function LeadsTable({ rows, lists = [] }: { rows: LeadRow[]; lists?: { id
               {STATUS_STYLES[s].label}
             </button>
           ))}
-          <BulkTools ids={[...selected]} lists={lists} />
+          <BulkTools ids={[...selected]} lists={lists} sequences={sequences} />
           <button onClick={() => setSelected(new Set())} className="ml-auto text-xs text-muted hover:text-fg">
             Clear
           </button>

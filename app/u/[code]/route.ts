@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { stopSequencesForLead } from "@/lib/sequence-stop";
 
 /**
  * Email unsubscribe. GET shows a confirm button (link scanners must not unsubscribe people);
@@ -45,6 +46,7 @@ export async function POST(_: Request, ctx: RouteContext<"/u/[code]">) {
       .returning({ id: L.id });
     if (lead) {
       await db.insert(schema.leadActivities).values({ workspaceId: r.workspaceId, leadId: r.leadId, type: "email_optout", channel: "email", body: "Unsubscribed from emails" });
+      await stopSequencesForLead(r.leadId, "stopped", "Unsubscribed from emails");
     }
   }
   return page("Unsubscribed", "<h1>You're unsubscribed</h1><p>You won't receive any more emails from us. Sorry for the bother.</p>");

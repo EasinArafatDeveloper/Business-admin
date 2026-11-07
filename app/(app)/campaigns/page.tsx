@@ -207,6 +207,7 @@ export default async function CampaignsPage({ searchParams }: PageProps<"/campai
                           <div className="min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="truncate font-medium">{c.name}</span>
+                              {c.sequenceId && <span className="rounded-full bg-violet/15 px-1.5 py-0.5 text-[10px] font-medium text-violet">Sequence</span>}
                               <CampaignStatus status={c.status} />
                             </div>
                             <div className="mt-0.5 text-xs text-muted-2">

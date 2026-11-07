@@ -1,6 +1,7 @@
 import "server-only";
 import { and, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
+import { stopSequencesForLead } from "@/lib/sequence-stop";
 
 const L = schema.leads;
 
@@ -11,6 +12,7 @@ export const ACTIVITY_KINDS = {
   note: { label: "Note", manual: true },
   status: { label: "Status" },
   created: { label: "Added" },
+  sequence: { label: "Sequence" },
   form: { label: "Website form", dir: "in" },
   click: { label: "Link click", dir: "in" },
   sms_sent: { label: "SMS sent", channel: "sms", dir: "out", manual: true },
@@ -74,5 +76,7 @@ export async function logActivity(a: {
         : {})
     })
     .where(eq(L.id, a.leadId));
+  // A reply ends their sequences: no more automatic follow-ups.
+  if (a.type.endsWith("_reply")) await stopSequencesForLead(a.leadId, "replied", `Replied (${kind.label})`);
   return row.id;
 }

@@ -8,13 +8,14 @@ import { desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { LeadsTable } from "@/components/leads/leads-table";
 import { nf } from "@/lib/utils";
+import { can } from "@/lib/permissions";
 
 export const metadata = { title: "Leads" };
 
 export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
   const user = await requireAccess("leads");
   const filters = parseFilters(await searchParams);
-  const [{ rows, total }, options, lists] = await Promise.all([
+  const [{ rows, total }, options, lists, sequences] = await Promise.all([
     findLeads(user.workspaceId, filters),
     filterOptions(user.workspaceId),
     db
@@ -22,7 +23,14 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
       .from(schema.leadLists)
       .where(eq(schema.leadLists.workspaceId, user.workspaceId))
       .orderBy(desc(schema.leadLists.updatedAt))
-      .limit(100)
+      .limit(100),
+    can(user, "campaigns")
+      ? db
+          .select({ id: schema.sequences.id, name: schema.sequences.name, status: schema.sequences.status })
+          .from(schema.sequences)
+          .where(eq(schema.sequences.workspaceId, user.workspaceId))
+          .orderBy(desc(schema.sequences.updatedAt))
+      : []
   ]);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const from = total === 0 ? 0 : (filters.page - 1) * PAGE_SIZE + 1;
@@ -51,7 +59,7 @@ export default async function LeadsPage({ searchParams }: PageProps<"/leads">) {
       </div>
 
       <FilterBar options={options} lists={lists} />
-      <LeadsTable rows={rows} lists={lists} />
+      <LeadsTable rows={rows} lists={lists} sequences={sequences} />
 
       {total > 0 && (
         <div className="flex items-center justify-between text-sm text-muted">

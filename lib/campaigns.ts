@@ -501,3 +501,82 @@ export async function startCampaignWorker() {
   }, TICK_MS);
   console.log("[campaigns] sending worker started");
 }
+
+/* ---------------------------------------------------------------- one-at-a-time (sequences) */
+
+export type SequenceLead = {
+  id: number;
+  pageName: string | null;
+  primaryService: string | null;
+  phone: string | null;
+  whatsapp: string | null;
+  email: string | null;
+  smsOptOut: boolean;
+  waOptOut: boolean;
+  emailOptOut: boolean;
+} & Parameters<typeof leadFields>[0];
+
+/** The number / email a lead gets this channel on, or why they can't. */
+export function contactFor(lead: SequenceLead, channel: Channel): { to: string } | { skip: string } {
+  if (channel === "email") {
+    if (lead.emailOptOut) return { skip: "unsubscribed from email" };
+    const to = normalizeEmail(lead.email);
+    return to ? { to } : { skip: "no valid email" };
+  }
+  if (channel === "whatsapp" ? lead.waOptOut : lead.smsOptOut) return { skip: `opted out of ${channel === "whatsapp" ? "WhatsApp" : "SMS"}` };
+  const to = channel === "whatsapp" ? (normalizeBdMobile(lead.whatsapp) ?? normalizeBdMobile(lead.phone)) : (normalizeBdMobile(lead.phone) ?? normalizeBdMobile(lead.whatsapp));
+  return to ? { to } : { skip: "no valid mobile number" };
+}
+
+/**
+ * Adds one lead's message to a campaign (used by sequence steps). "queued" is sent by the worker;
+ * "manual" waits for you to send it by hand (Today screen) and mark it sent. The {link} is tracked per person.
+ */
+export async function addRecipient(
+  campaignId: number,
+  lead: SequenceLead,
+  o: { channel: Channel; workspaceId: number; body: string; subject?: string | null; manual: boolean }
+): Promise<{ recipientId: number; to: string; message: string; subject: string | null } | { skip: string }> {
+  const c = contactFor(lead, o.channel);
+  if ("skip" in c) return c;
+  const code = newCode();
+  const vars = { name: lead.pageName, service: lead.primaryService, link: `${linkBase()}/${code}`, fields: leadFields(lead) };
+  let message = renderTemplate(o.body, vars, { cleanNames: o.channel === "sms" });
+  if (o.channel === "email" && !o.manual) message += EMAIL_FOOTER(unsubscribeUrl(code));
+  const subject = o.channel === "email" ? renderTemplate(o.subject ?? "", vars).slice(0, 200) : null;
+  const [row] = await db
+    .insert(R)
+    .values({
+      workspaceId: o.workspaceId,
+      campaignId,
+      leadId: lead.id,
+      phone: c.to,
+      trackingCode: code,
+      message,
+      subject,
+      parts: o.channel === "sms" ? smsParts(message).parts : 1,
+      status: o.manual ? "manual" : "queued"
+    })
+    .returning({ id: R.id });
+  await db
+    .update(C)
+    .set({
+      totalRecipients: sql`${C.totalRecipients} + 1`,
+      // A finished step campaign wakes up again when someone new reaches the step.
+      ...(o.manual ? {} : { status: sql`case when ${C.status} = 'done' then 'sending' else ${C.status} end`, finishedAt: null })
+    })
+    .where(eq(C.id, campaignId));
+  return { recipientId: row.id, to: c.to, message, subject };
+}
+
+/** You sent a "manual" message yourself: count it and put it on the lead's timeline. */
+export async function markManualSent(recipientId: number, workspaceId: number) {
+  const [r] = await db
+    .select({ id: R.id, campaignId: R.campaignId, lead_id: R.leadId, message: R.message, subject: R.subject })
+    .from(R)
+    .where(and(eq(R.id, recipientId), eq(R.workspaceId, workspaceId), eq(R.status, "manual")))
+    .limit(1);
+  if (!r) return false;
+  await markSent(r.campaignId, r, "manual");
+  return true;
+}

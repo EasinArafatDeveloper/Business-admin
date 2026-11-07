@@ -8,5 +8,7 @@ export async function register() {
     await startCampaignWorker();
     const { startInboxSync } = await import("./lib/email-inbox");
     startInboxSync();
+    const { startSequenceWorker } = await import("./lib/sequences");
+    startSequenceWorker();
   }
 }

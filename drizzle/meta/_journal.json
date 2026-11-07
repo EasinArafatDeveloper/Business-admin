@@ -113,6 +113,13 @@
       "when": 1794053855290,
       "tag": "0015_lead_tags_activity_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794054729404,
+      "tag": "0016_sequences_templates_tasks",
+      "breakpoints": true
     }
   ]
 }

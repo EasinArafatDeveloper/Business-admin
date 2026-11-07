@@ -1,12 +1,14 @@
 import "server-only";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db";
 import { LEAD_STATUSES } from "@/lib/constants";
 import { parseFilters, whereFor } from "@/lib/leads-query";
 import { addLeads } from "@/lib/lists";
 import { bulkUpdateLeads } from "@/lib/lead-bulk";
+import { enrollLeads, enrollmentCounts } from "@/lib/sequences";
+import { endOfToday } from "@/lib/today";
 import { ACTIVITY_KINDS, type ActivityType, MANUAL_TYPES, logActivity } from "@/lib/activity";
 import { offerGroup } from "@/lib/offer";
 import { createCampaignWithRecipients, dhakaNow } from "@/lib/campaigns";
@@ -564,6 +566,202 @@ export function buildServer(ctx: McpContext) {
           }))
       );
       return ok({ listId: list.id, added, updated, skippedUnknownIds: a.leads.length - items.length, url: adminUrl(`/leads/lists/${list.id}`) });
+    }
+  );
+
+  /* ------------------------------------------------------------ templates, sequences, today */
+
+  const TT = schema.messageTemplates;
+  const SQ = schema.sequences;
+  const SS = schema.sequenceSteps;
+
+  tool(
+    "list_templates",
+    {
+      title: "Message templates",
+      description: "Saved reusable messages (WhatsApp, SMS, email).",
+      section: "campaigns",
+      input: { channel: z.enum(["sms", "whatsapp", "email"]).optional() }
+    },
+    async (a) => {
+      const rows = await db
+        .select({ id: TT.id, channel: TT.channel, name: TT.name, subject: TT.subject, body: TT.body })
+        .from(TT)
+        .where(and(eq(TT.workspaceId, ws), a.channel ? eq(TT.channel, a.channel) : undefined))
+        .orderBy(desc(TT.updatedAt))
+        .limit(100);
+      return ok(rows);
+    }
+  );
+
+  tool(
+    "create_template",
+    {
+      title: "Save a message template",
+      description:
+        "Save a reusable message. Placeholders: {name} {service} {link} (tracked link) and lead data {industry} {ads} {days} {followers} {pain} {orders} {size} {category} {address}; {ads:onek} uses 'onek' when missing; {a|b} picks one at random.",
+      section: "campaigns",
+      write: true,
+      input: {
+        channel: z.enum(["sms", "whatsapp", "email"]),
+        name: z.string().min(2).max(100),
+        subject: z.string().max(200).optional(),
+        body: z.string().min(1).max(10000)
+      }
+    },
+    async (a) => {
+      const [row] = await db
+        .insert(TT)
+        .values({ workspaceId: ws, createdBy: user.id, channel: a.channel, name: a.name, subject: a.channel === "email" ? (a.subject ?? null) : null, body: a.body })
+        .returning({ id: TT.id });
+      return ok({ id: row.id, url: adminUrl("/templates") });
+    }
+  );
+
+  tool(
+    "list_sequences",
+    {
+      title: "Sequences",
+      description: "Follow-up plans with their steps and how many leads are running / waiting / replied / finished.",
+      section: "campaigns",
+      input: {}
+    },
+    async () => {
+      const seqs = await db.select().from(SQ).where(eq(SQ.workspaceId, ws)).orderBy(desc(SQ.updatedAt)).limit(50);
+      const steps = seqs.length
+        ? await db
+            .select()
+            .from(SS)
+            .where(
+              inArray(
+                SS.sequenceId,
+                seqs.map((s) => s.id)
+              )
+            )
+            .orderBy(asc(SS.position))
+        : [];
+      const counts = await enrollmentCounts(ws);
+      return ok(
+        seqs.map((s) => ({
+          id: s.id,
+          name: s.name,
+          status: s.status,
+          link: s.destinationUrl,
+          steps: steps.filter((x) => x.sequenceId === s.id).map((x) => ({ day: x.day, channel: x.channel, mode: x.mode, subject: x.subject, body: x.body })),
+          leads: counts.get(s.id) ?? {},
+          url: adminUrl(`/sequences/${s.id}`)
+        }))
+      );
+    }
+  );
+
+  tool(
+    "create_sequence",
+    {
+      title: "Create a sequence (as a draft)",
+      description:
+        "Create a follow-up plan, e.g. Day 1 email (auto) → Day 2 SMS (auto) → Day 4 WhatsApp (manual). It is saved as a DRAFT: nothing is sent until the user turns it on in the admin. mode 'manual' puts the step on the user's Today screen to send from their own phone (use this for cold WhatsApp); 'auto' lets the app send it. Same placeholders as create_template.",
+      section: "campaigns",
+      write: true,
+      input: {
+        name: z.string().min(2).max(120),
+        link: z.string().url().max(500).optional().describe("Where {link} goes, e.g. https://scaleupweb.xyz/free-audit"),
+        steps: z
+          .array(
+            z.object({
+              day: z.number().int().min(1).max(90).describe("Day counted from enrolment, 1 = same day"),
+              channel: z.enum(["email", "sms", "whatsapp", "call"]),
+              mode: z.enum(["auto", "manual"]).default("manual"),
+              subject: z.string().max(200).optional(),
+              body: z.string().max(10000)
+            })
+          )
+          .min(1)
+          .max(15)
+      }
+    },
+    async (a) => {
+      const link = a.link ? safeUrl(a.link) : null;
+      if (a.link && !link) return fail("link must start with https://");
+      if (!link && a.steps.some((s) => /\{link\}/i.test(s.body))) return fail("A step uses {link}: give the link it should open");
+      const [sender] = await db
+        .select({ id: schema.emailSenders.id })
+        .from(schema.emailSenders)
+        .where(eq(schema.emailSenders.workspaceId, ws))
+        .limit(1);
+      const [s] = await db
+        .insert(SQ)
+        .values({ workspaceId: ws, name: a.name, createdBy: user.id, destinationUrl: link, emailSenderId: sender?.id ?? null, status: "draft" })
+        .returning({ id: SQ.id });
+      const steps = [...a.steps].sort((x, y) => x.day - y.day);
+      await db.insert(SS).values(
+        steps.map((st, position) => ({
+          sequenceId: s.id,
+          position,
+          day: st.day,
+          channel: st.channel,
+          mode: st.channel === "call" ? "manual" : st.mode,
+          subject: st.channel === "email" ? (st.subject ?? null) : null,
+          body: st.body
+        }))
+      );
+      return ok({ id: s.id, status: "draft", note: "Ask the user to review and turn it on in the admin.", url: adminUrl(`/sequences/${s.id}`) });
+    }
+  );
+
+  tool(
+    "enroll_leads",
+    {
+      title: "Add leads to a sequence",
+      description:
+        "Add leads (by id) to a sequence. They are added as WAITING: nothing is sent until the user clicks Start on the sequence page. Won/lost/skipped leads and leads already in it are left out.",
+      section: "campaigns",
+      write: true,
+      input: { sequenceId: z.number().int(), ids: z.array(z.number().int()).min(1).max(1000) }
+    },
+    async (a) => {
+      const r = await enrollLeads(ws, a.sequenceId, a.ids, user.id, "waiting");
+      if ("error" in r) return fail(r.error ?? "Could not enroll");
+      return ok({ ...r, note: "Waiting for the user's OK on the sequence page.", url: adminUrl(`/sequences/${a.sequenceId}`) });
+    }
+  );
+
+  tool(
+    "get_today_tasks",
+    {
+      title: "Today's tasks",
+      description:
+        "What the user has to do by hand today (WhatsApp/SMS/email to send, calls), overdue first, plus unread replies. Tasks are completed by the user in the admin.",
+      section: "campaigns",
+      input: { includeLater: z.boolean().optional().describe("Also list tasks due on later days") }
+    },
+    async (a) => {
+      const T = schema.tasks;
+      const rows = await db
+        .select({ t: T, name: L.pageName, status: L.status })
+        .from(T)
+        .innerJoin(L, eq(L.id, T.leadId))
+        .where(and(eq(T.workspaceId, ws), eq(T.state, "open"), a.includeLater ? undefined : lte(T.dueAt, endOfToday())))
+        .orderBy(asc(T.dueAt))
+        .limit(200);
+      const [unread] = await db
+        .select({ n: sql<number>`count(distinct ${M.sender})::int` })
+        .from(M)
+        .where(and(eq(M.workspaceId, ws), eq(M.direction, "in"), isNull(M.readAt)));
+      return ok({
+        unreadReplies: unread?.n ?? 0,
+        tasks: rows.map(({ t, name, status }) => ({
+          id: t.id,
+          lead: { id: t.leadId, name, status },
+          channel: t.channel,
+          title: t.title,
+          to: t.contact,
+          subject: t.subject,
+          message: t.body,
+          due: t.dueAt
+        })),
+        url: adminUrl("/today")
+      });
     }
   );
 

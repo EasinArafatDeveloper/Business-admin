@@ -6,6 +6,7 @@ import { db, schema } from "@/db";
 import type { EmailSender } from "@/db/schema";
 import { decryptSecret } from "@/lib/secrets";
 import { isOptOutReply, stripQuoted } from "@/lib/email-quote";
+import { stopSequencesForLead } from "@/lib/sequence-stop";
 
 /** IMAP server for each SMTP host we know (Brevo/SES are send-only, so no reply sync there). */
 export const IMAP_FOR_SMTP: Record<string, string> = { "smtp.gmail.com": "imap.gmail.com", "smtp.zoho.com": "imap.zoho.com" };
@@ -80,6 +81,7 @@ async function saveReply(sender: EmailSender, m: { from: string; name: string | 
       ...(optOut ? { emailOptOut: true } : { status: sql`case when ${L.status} in ('new','contacted') then 'interested'::lead_status else ${L.status} end` })
     })
     .where(eq(L.id, m.leadId));
+  await stopSequencesForLead(m.leadId, optOut ? "stopped" : "replied", optOut ? "Opted out of email" : "Replied by email");
   return true;
 }
 
